@@ -1,0 +1,5 @@
+charts:
+- yKey: loss
+  xKey: steps
+- yKey: a0_loss
+  xKey: steps

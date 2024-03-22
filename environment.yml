@@ -1,0 +1,32 @@
+name: decidiff
+channels:
+- defaults
+- conda-forge
+dependencies:
+- python=3.8
+- pip
+- patchelf
+- pip:
+    - numpy
+    - matplotlib==3.3.4
+    - gym==0.18.0 # pip install gym
+#    - mujoco-py==2.0.2.13 # cannot install manually
+    - torch==1.9.1+cu111
+    - -f https://download.pytorch.org/whl/torch_stable.html
+    - typed-argument-parser
+    - git+https://github.com/rail-berkeley/d4rl@master#egg=d4rl
+    - scikit-image==0.17.2
+    - scikit-video==1.1.11
+    - gitpython
+    - einops
+    - pillow
+    - tqdm
+    - pandas
+    - wandb
+    - flax >= 0.3.5
+    - jax <= 0.2.21
+    - ray==1.9.1
+    - crcmod # for fast gsutil rsync on large files
+    - ml_logger==0.8.69
+    - jaynes==0.8.11
+    - params_proto==2.9.6
