@@ -16,6 +16,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from adamp import AdamP
+import random
 
 def cycle(dl):
     while True:
@@ -128,9 +129,10 @@ class Trainer(object):
                 loss, infos = self.model.loss(*batch)
                 loss = loss / self.gradient_accumulate_every
                 loss.backward()
-                diff_loss, inv_loss, _ = self.model.loss1(*batch)
-                writer.add_scalar("diff loss", diff_loss, step)
-                writer.add_scalar("inv loss", inv_loss, step)
+                if step % 10 == 0:
+                    diff_loss, inv_loss, _ = self.model.loss1(*batch)
+                    writer.add_scalar("diff loss", diff_loss, step)
+                    writer.add_scalar("inv loss", inv_loss, step)
 
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -307,7 +309,8 @@ class Trainer(object):
             if self.ema_model.returns_condition:
                 # returns = to_device( 0.9 * torch.ones(n_samples, 1), self.device)
                 ############################ change the gait here ######################################
-                returns = to_device(torch.Tensor([[1, 0, 0] for i in range(n_samples)]), self.device)
+                returns = to_device(torch.Tensor([[random.randint(0,3), 1.5, 0, 0]
+                                                  for i in range(n_samples)]), self.device)
                 #########################################################################################
             else:
                 returns = None

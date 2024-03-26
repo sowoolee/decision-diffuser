@@ -148,7 +148,7 @@ class TemporalUnet(nn.Module):
         if self.returns_condition:
             self.returns_mlp = nn.Sequential(
                         # nn.Linear(1, dim),
-                        nn.Linear(3,dim),
+                        nn.Linear(4,dim),
                         act_fn,
                         nn.Linear(dim, dim * 4),
                         act_fn,

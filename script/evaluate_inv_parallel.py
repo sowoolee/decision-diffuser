@@ -603,7 +603,7 @@ def evaluate_fast(**deps):
     ####################### return version #############################
     # returns = to_device(Config.test_ret * torch.ones(num_eval, 1), device)
     #######################  gait version  #############################
-    returns = to_device(torch.Tensor([[1,0,0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[2,1.49,0,0] for i in range(num_eval)]), device)
 
     trot_returns = to_device(torch.Tensor([[1,0,0] for i in range(num_eval)]), device)
     bound_returns = to_device(torch.Tensor([[0,1,0] for i in range(num_eval)]), device)
@@ -645,14 +645,14 @@ def evaluate_fast(**deps):
     warm_sample = None
 
     # while sum(dones) <  num_eval:
-    while t < 80:
+    while t < 500:
         obs = dataset.normalizer.normalize(obs, 'observations')
         conditions = {0: to_torch(obs, device=device)}
 
         if t == 0 :
-            samples = trainer.ema_model.conditional_sample(conditions, returns=trot_returns)
+            samples = trainer.ema_model.conditional_sample(conditions, returns)
             # torch.save(samples, 'initial_sample_pace.pt')
-            samples = torch.load('initial_sample.pt')
+            # samples = torch.load('initial_sample.pt')
             warm_sample = samples
         ############################## just one gait ###########################################
         # else :
@@ -663,7 +663,7 @@ def evaluate_fast(**deps):
         else :
             if t < 500:
                 start_time = time.time()
-                samples = trainer.ema_model.conditional_warm_sample(conditions, warm_sample, steps=9, returns=trot_returns)
+                samples = trainer.ema_model.conditional_warm_sample(conditions, warm_sample, steps=9, returns=returns)
                 end_time = time.time()
                 execution_time = end_time - start_time
                 sampling_time += execution_time

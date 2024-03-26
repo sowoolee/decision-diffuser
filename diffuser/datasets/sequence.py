@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import pdb
 
+import time
+
 from .preprocessing import get_preprocess_fn
 from .d4rl import load_environment, sequence_dataset
 from .normalization import DatasetNormalizer
@@ -16,7 +18,7 @@ class SequenceDataset(torch.utils.data.Dataset):
 
     def __init__(self, env='hopper-medium-replay', horizon=64,
         normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
-        max_n_episodes=10000, termination_penalty=0, use_padding=True, discount=0.99, returns_scale=1000, include_returns=False):
+        max_n_episodes=100000, termination_penalty=0, use_padding=True, discount=0.99, returns_scale=1000, include_returns=False):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
         self.env = env = load_environment(env)
         self.returns_scale = returns_scale
@@ -41,7 +43,11 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.fields = fields
         self.n_episodes = fields.n_episodes
         self.path_lengths = fields.path_lengths
+        print("measuring time from now")
+        start_time = time.time()
         self.normalize()
+        end_time = time.time()
+        print("elapsed time: ", end_time - start_time, "sec")
 
         print(fields)
         # shapes = {key: val.shape for key, val in self.fields.items()}

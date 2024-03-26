@@ -80,72 +80,20 @@ def sequence_dataset(env, preprocess_fn):
     # dataset['timeouts'] = np.array([False for i in range(2500)])
 
     ################### using only one dataset ##################
-    # file_path = os.path.expanduser('~/Desktop/data.pkl')
-    # with open(file_path, 'rb') as f:
-    #     loaded_data = pkl.load(f)
-    #     dataset = loaded_data
+    file_path = os.path.expanduser('~/Desktop/data.pkl')
+    with open(file_path, 'rb') as f:
+        loaded_data = pkl.load(f)
+        dataset = loaded_data
     #############################################################
     ################### using more datasets #######################
-    tf_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/forward/data.pkl')
-    tb_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/backward/data.pkl')
-    tl_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/left/data.pkl')
-    tr_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/right/data.pkl')
-
-    bf_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/bound/forward/data.pkl')
-    bb_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/bound/backward/data.pkl')
-    bl_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/bound/left/data.pkl')
-    br_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/bound/right/data.pkl')
-
-    pf_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/pace/forward/data.pkl')
-    pb_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/pace/backward/data.pkl')
-    pl_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/pace/left/data.pkl')
-    pr_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/pace/right/data.pkl')
-
-    with open(tf_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        tf_dataset = loaded_data
-    with open(tb_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        tb_dataset = loaded_data
-    with open(tl_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        tl_dataset = loaded_data
-    with open(tr_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        tr_dataset = loaded_data
-
-    with open(bf_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        bf_dataset = loaded_data
-    with open(bb_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        bb_dataset = loaded_data
-    with open(bl_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        bl_dataset = loaded_data
-    with open(br_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        br_dataset = loaded_data
-
-    with open(pf_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        pf_dataset = loaded_data
-    with open(pb_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        pb_dataset = loaded_data
-    with open(pl_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        pl_dataset = loaded_data
-    with open(pr_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        pr_dataset = loaded_data
-
-    dataset = {}
-    for key in tf_dataset.keys():
-        dataset[key] = np.concatenate((tf_dataset[key], tb_dataset[key], tl_dataset[key], tr_dataset[key],
-                                            bf_dataset[key], bf_dataset[key], bf_dataset[key], bf_dataset[key],
-                                            pace_dataset[key])
-                                      , axis=0)
+    # tf_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/forward/data.pkl')
+    # tb_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/backward/data.pkl')
+    # tl_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/left/data.pkl')
+    # tr_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/right/data.pkl')
+    #
+    # with open(tf_path, 'rb') as f:
+    #     loaded_data = pkl.load(f)
+    #     tf_dataset = loaded_data
     ###############################################################
     dataset = preprocess_fn(dataset)
 
@@ -179,6 +127,7 @@ def sequence_dataset(env, preprocess_fn):
             data_ = collections.defaultdict(list)
 
         episode_step += 1
+        # if episode_step % 1000 == 0: print(episode_step)
 
 
 #-----------------------------------------------------------------------------#

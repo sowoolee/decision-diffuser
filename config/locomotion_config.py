@@ -21,7 +21,7 @@ class Config(ParamsProto):
     dim_mults = (1, 4, 8) # 1,4,8
     returns_condition = True
     calc_energy=False
-    dim = 128 # 128
+    dim = 256 # 128
     condition_dropout = 0.25
     condition_guidance_w = 1.4
     test_ret = 0.9
@@ -47,11 +47,11 @@ class Config(ParamsProto):
     loss_type = 'l2'
     n_train_steps = 1e6
     batch_size = 32 # 32
-    learning_rate = 2e-5 # 2e-4
+    learning_rate = 2e-4 # 2e-4
     gradient_accumulate_every = 2
     ema_decay = 0.995
     log_freq = 1000
-    save_freq = 1000
+    save_freq = 5000
     sample_freq = 1000
     n_saves = 5
     save_parallel = False
