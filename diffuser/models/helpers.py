@@ -95,6 +95,14 @@ def apply_conditioning(x, conditions, action_dim):
         x[:, t, action_dim:] = val.clone()
     return x
 
+def apply_conditionings(x, conditions, action_dim):
+    for t, val in conditions.items():
+        if t == 0:
+            x[:, t, action_dim:] = val.clone()
+        else:
+            x[:, :, action_dim + t - 1] = val.clone()
+    return x
+
 #-----------------------------------------------------------------------------#
 #---------------------------------- losses -----------------------------------#
 #-----------------------------------------------------------------------------#
@@ -130,6 +138,22 @@ class WeightedStateLoss(nn.Module):
         loss = self._loss(pred, targ)
         weighted_loss = (loss * self.weights).mean()
         return weighted_loss, {'a0_loss': weighted_loss}
+
+class IndividualStateLoss(nn.Module):
+
+    def __init__(self, weights):
+        super().__init__()
+        self.register_buffer('weights', weights)
+
+    def forward(self, pred, targ):
+        '''
+            pred, targ : tensor
+                [ batch_size x horizon x transition_dim ]
+        '''
+        loss = self._loss(pred, targ)
+        loss = loss.reshape(-1, loss.shape[-1])
+        state_loss = loss.mean(axis=0)
+        return state_loss, {'state_loss', state_loss.mean()}
 
 class ValueLoss(nn.Module):
     def __init__(self, *args):
@@ -171,6 +195,11 @@ class WeightedStateL2(WeightedStateLoss):
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction='none')
 
+class IndividualStateL2(IndividualStateLoss):
+
+    def _loss(self, pred, targ):
+        return F.mse_loss(pred, targ, reduction='none')
+
 class ValueL1(ValueLoss):
 
     def _loss(self, pred, targ):
@@ -185,6 +214,7 @@ Losses = {
     'l1': WeightedL1,
     'l2': WeightedL2,
     'state_l2': WeightedStateL2,
+    'each_state_l2': IndividualStateL2,
     'value_l1': ValueL1,
     'value_l2': ValueL2,
 }

@@ -43,15 +43,6 @@ def load_environment(name):
 
 def get_dataset(env):
     dataset = env.get_dataset()
-
-    if 'antmaze' in str(env).lower():
-        ## the antmaze-v0 environments have a variety of bugs
-        ## involving trajectory segmentation, so manually reset
-        ## the terminal and timeout fields
-        dataset = antmaze_fix_timeouts(dataset)
-        dataset = antmaze_scale_rewards(dataset)
-        get_max_delta(dataset)
-
     return dataset
 
 def sequence_dataset(env, preprocess_fn):
@@ -69,33 +60,22 @@ def sequence_dataset(env, preprocess_fn):
             rewards
             terminals
     """
-    # dataset = get_dataset(env)
 
-    # dataset = {}
-    # dataset['actions'] = np.zeros((2500,12))
-    # dataset['observations'] = np.zeros((2500,12))
-    # dataset['rewards'] = np.ones((2500,))
-    # terminals = [False for i in range(249)] + [True]
-    # dataset['terminals'] = np.array(terminals * 10)
-    # dataset['timeouts'] = np.array([False for i in range(2500)])
-
-    ################### using only one dataset ##################
     file_path = os.path.expanduser('~/Desktop/data.pkl')
     with open(file_path, 'rb') as f:
         loaded_data = pkl.load(f)
         dataset = loaded_data
-    #############################################################
-    ################### using more datasets #######################
-    # tf_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/forward/data.pkl')
-    # tb_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/backward/data.pkl')
-    # tl_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/left/data.pkl')
-    # tr_path = os.path.expanduser('~/Desktop/dataset/2500_obdim42_fblr/trot/right/data.pkl')
-    #
-    # with open(tf_path, 'rb') as f:
-    #     loaded_data = pkl.load(f)
-    #     tf_dataset = loaded_data
-    ###############################################################
+
     dataset = preprocess_fn(dataset)
+    generate_pos = True
+    include_clock = True
+
+    if not include_clock:
+        dataset['observations'] = np.concatenate([dataset['observations'][:,0:13], dataset['observations'][:,18:]], axis=-1)
+        print(dataset['observations'].shape)
+
+    if not generate_pos:
+        dataset['observations'] = dataset['observations'][:,2:]
 
     N = dataset['rewards'].shape[0]
     data_ = collections.defaultdict(list)
@@ -121,27 +101,9 @@ def sequence_dataset(env, preprocess_fn):
             episode_data = {}
             for k in data_:
                 episode_data[k] = np.array(data_[k])
-            if 'maze2d' in env.name:
-                episode_data = process_maze2d_episode(episode_data)
             yield episode_data
             data_ = collections.defaultdict(list)
 
         episode_step += 1
         # if episode_step % 1000 == 0: print(episode_step)
 
-
-#-----------------------------------------------------------------------------#
-#-------------------------------- maze2d fixes -------------------------------#
-#-----------------------------------------------------------------------------#
-
-def process_maze2d_episode(episode):
-    '''
-        adds in `next_observations` field to episode
-    '''
-    assert 'next_observations' not in episode
-    length = len(episode['observations'])
-    next_observations = episode['observations'][1:].copy()
-    for key, val in episode.items():
-        episode[key] = val[:-1]
-    episode['next_observations'] = next_observations
-    return episode

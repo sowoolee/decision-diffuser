@@ -1,5 +1,8 @@
 *.diff
 *.pt
+*.pkl
+/analysis/diffuser/default_inv/predict_epsilon_200_1000000.0/dropout_0.25/hopper-medium-expert-v2/100/*
 /analysis/diffuser/default_inv/predict_epsilon_200_1000000.0/dropout_0.25/hopper-medium-expert-v2/100/index.diff
+/analysis/outputs.log
 /analysis/runs/*
 /runs/*

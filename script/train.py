@@ -1,7 +1,7 @@
+import isaacgym
+assert isaacgym
 import diffuser.utils as utils
 import torch
-
-from torch.utils.tensorboard import SummaryWriter
 
 def main(**deps):
     from ml_logger import logger, RUN

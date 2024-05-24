@@ -350,6 +350,7 @@ class GaussianInvDynDiffusion(nn.Module):
         ## get loss coefficients and initialize objective
         loss_weights = self.get_loss_weights(loss_discount)
         self.loss_fn = Losses['state_l2'](loss_weights)
+        self.each_loss_fn = Losses['each_state_l2'](loss_weights)
 
     def get_loss_weights(self, discount):
         '''
@@ -502,7 +503,7 @@ class GaussianInvDynDiffusion(nn.Module):
             return x
 
     @torch.no_grad()
-    def conditional_warm_sample(self, cond, warm_sample, steps, returns=None, horizon=None, *args, **kwargs):
+    def conditional_warm_sample(self, cond, warm_sample, k, steps, returns=None, horizon=None, *args, **kwargs):
         '''
             conditions : [ (time, state), ... ]
         '''
@@ -511,12 +512,13 @@ class GaussianInvDynDiffusion(nn.Module):
         horizon = horizon or self.horizon
         shape = (batch_size, horizon, self.observation_dim)
 
-        warm_sample = warm_sample[:, 1:, :]
+        warm_sample = warm_sample[:, k:, :]
         padding_sample = warm_sample[:, -1, :]
-        padding_sample = padding_sample.unsqueeze(0)
+        # padding_sample = padding_sample.unsqueeze(0)
         print(warm_sample.shape)
         print(padding_sample.shape)
-        warm_sample = torch.cat((warm_sample, padding_sample), dim=1)
+        warm_sample = torch.cat([warm_sample, padding_sample.unsqueeze(1).repeat(1, k, 1)], dim=1)
+        # warm_sample = torch.cat(warm_sample, , dim=1)
 
         return self.p_warm_sample_loop(shape=shape, cond=cond, returns=returns, warm_sample=warm_sample, warm_diffusion_steps=steps, *args, **kwargs)
 
@@ -553,6 +555,26 @@ class GaussianInvDynDiffusion(nn.Module):
             loss, info = self.loss_fn(x_recon, x_start)
 
         return loss, info
+
+    def p_losses1(self, x_start, cond, t, returns=None):
+        noise = torch.randn_like(x_start)
+
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        x_noisy = apply_conditioning(x_noisy, cond, 0)
+
+        x_recon = self.model(x_noisy, cond, t, returns)
+
+        if not self.predict_epsilon:
+            x_recon = apply_conditioning(x_recon, cond, 0)
+
+        assert noise.shape == x_recon.shape
+
+        if self.predict_epsilon:
+            loss, info = self.each_loss_fn(x_recon, noise)
+        else:
+            loss, info = self.each_loss_fn(x_recon, x_start)
+
+        return loss, info, x_start, x_recon
 
     def loss(self, x, cond, returns=None):
         if self.train_only_inv:
@@ -610,7 +632,9 @@ class GaussianInvDynDiffusion(nn.Module):
         else:
             batch_size = len(x)
             t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
-            diffuse_loss, info = self.p_losses(x[:, :, self.action_dim:], cond, t, returns)
+            diffuse_loss, info, _, _ = self.p_losses1(x[:, :, self.action_dim:], cond, t, returns)
+            diffuse_loss = diffuse_loss.mean()
+
             # Calculating inv loss
             x_t = x[:, :-1, self.action_dim:]
             a_t = x[:, :-1, :self.action_dim]
@@ -624,9 +648,45 @@ class GaussianInvDynDiffusion(nn.Module):
                 pred_a_t = self.inv_model(x_comb_t)
                 inv_loss = F.mse_loss(pred_a_t, a_t)
 
-            loss = (1 / 2) * (diffuse_loss + inv_loss)
-
         return diffuse_loss, inv_loss, info
+
+    def loss2(self, x, cond, returns=None):
+        if self.train_only_inv:
+            # Calculating inv loss
+            x_t = x[:, :-1, self.action_dim:]
+            a_t = x[:, :-1, :self.action_dim]
+            x_t_1 = x[:, 1:, self.action_dim:]
+            x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
+            x_comb_t = x_comb_t.reshape(-1, 2 * self.observation_dim)
+            a_t = a_t.reshape(-1, self.action_dim)
+            if self.ar_inv:
+                loss = self.inv_model.calc_loss(x_comb_t, a_t)
+                info = {'a0_loss': loss}
+            else:
+                pred_a_t = self.inv_model(x_comb_t)
+                loss = F.mse_loss(pred_a_t, a_t)
+                info = {'a0_loss': loss}
+        else:
+            batch_size = len(x)
+            t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
+            diffuse_loss, info, x0, x0_pred = self.p_losses1(x[:, :, self.action_dim:], cond, t, returns)
+            diffuse_loss = diffuse_loss.mean()
+
+            # Calculating inv loss
+            x_t = x[:, :-1, self.action_dim:]
+            a_t = x[:, :-1, :self.action_dim]
+            x_t_1 = x[:, 1:, self.action_dim:]
+            x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
+            x_comb_t = x_comb_t.reshape(-1, 2 * self.observation_dim)
+            a_t = a_t.reshape(-1, self.action_dim)
+            if self.ar_inv:
+                inv_loss = self.inv_model.calc_loss(x_comb_t, a_t)
+            else:
+                pred_a_t = self.inv_model(x_comb_t)
+                inv_loss = F.mse_loss(pred_a_t, a_t)
+
+        return diffuse_loss, inv_loss, info, x0, x0_pred
+
 
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond=cond, *args, **kwargs)

@@ -90,7 +90,22 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx, eps=1e-4):
         path_ind, start, end = self.indices[idx]
 
-        observations = self.fields.normed_observations[path_ind, start:end]
+        # unnormed_obs = self.fields.observations[path_ind, start:end]
+        # unnormed_xy = unnormed_obs[:,0:2]
+        # unnormed_other = unnormed_obs[:,2:]
+        # unnormed_init_xy = unnormed_obs[0:1,0:2]
+        # unnormed_xy = unnormed_xy - unnormed_init_xy
+        # unnormed_obs = np.concatenate([unnormed_xy, unnormed_other], axis=-1)
+        # observations = self.normalizer.normalize(unnormed_obs, 'observations')
+
+        unnormed_obs = self.fields.observations[path_ind, start:end]
+        unnormed_xy = unnormed_obs[:,0:2]
+        normed_obs = self.fields.normed_observations[path_ind, start:end]
+        normed_other = normed_obs[:,2:]
+        # scale manually
+        unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2]) / 2.5
+        observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
+
         actions = self.fields.normed_actions[path_ind, start:end]
 
         conditions = self.get_conditions(observations)

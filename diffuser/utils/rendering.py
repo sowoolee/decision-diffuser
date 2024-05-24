@@ -247,7 +247,7 @@ class MuJoCoRenderer:
 
 class RaisimRenderer:
     '''
-        default mujoco renderer
+        raisim renderer
     '''
 
     def __init__(self, env):
@@ -266,10 +266,12 @@ class RaisimRenderer:
         ground = world_.addGround()
 
         anymal_ = world_.addArticulatedSystem(os.path.dirname(os.path.abspath(__file__)) + "/../environments/assets/go1/go1.urdf")
-        print(anymal_.getGeneralizedCoordinateDim())
+        # print(anymal_.getGeneralizedCoordinateDim())
 
         self.world = world_
         self.anymal = anymal_
+        self.dt = 0.02
+        self.worldTime = 0
 
 
     def pad_observation(self, observation):
@@ -345,18 +347,19 @@ class RaisimRenderer:
 
         # math.cos(yaw_angle)*state[0], math.sin(yaw_angle)*state[0], 0.5,
         # gc = [  math.cos(yaw_angle)*1.5, math.sin(yaw_angle)*1.5, 0.5,
-        gc = [  0., 0., 0.5,
-                1., 0., 0., 0.,
+        gc = [  *state[0:3],
+                *quat,
                 *dof_pos  ]
 
         # gc = [ state[0], 0.,state[1],
         #        math.cos(state[2]/2), 0., math.sin(state[2]/2), 0.,
         #        state[3], state[4], state[5] ]
-
+        self.world.setWorldTime(self.worldTime)
         self.anymal.setGeneralizedCoordinate(gc)
-        time.sleep(0.02)
+        time.sleep(0.2)
 
         data = np.zeros((*dim, 3), np.uint8)
+        self.worldTime+=self.dt
         return data
 
     def _renders(self, observations, **kwargs):
@@ -391,7 +394,8 @@ class RaisimRenderer:
         }
 
         server = raisim.RaisimServer(self.world)
-        server.launchServer(8080)
+        server.launchServer(8088)
+        server.focusOn(self.anymal)
 
         images = []
         for path in paths:
@@ -407,6 +411,40 @@ class RaisimRenderer:
             logger.savefig(savepath, fig)
             print(f'Saved {len(paths)} samples to: {savepath}')
 
+        server.killServer()
+
+        return images
+
+    def composite2(self, savepath, paths, title, dim=(1024, 256), **kwargs):
+
+        render_kwargs = {
+            'trackbodyid': 2,
+            'distance': 10,
+            'lookat': [5, 2, 0.5],
+            'elevation': 0
+        }
+
+        server = raisim.RaisimServer(self.world)
+        server.launchServer(8088)
+        server.startRecordingVideo(title+".mp4")
+        server.focusOn(self.anymal)
+        time.sleep(1)
+
+        images = []
+        for path in paths:
+            ## [ H x obs_dim ]
+            path = atmost_2d(path)
+            img = self.renders(to_np(path), dim=dim, partial=False, qvel=True, render_kwargs=render_kwargs, **kwargs)
+            images.append(img)
+        images = np.concatenate(images, axis=0)
+
+        if savepath is not None:
+            fig = plt.figure()
+            plt.imshow(images)
+            logger.savefig(savepath, fig)
+            print(f'Saved {len(paths)} samples to: {savepath}')
+
+        server.stopRecordingVideo()
         server.killServer()
 
         return images

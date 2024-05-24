@@ -1,8 +1,8 @@
 #!/bin/bash
 ##Setting
 ENV_NAME=decisionDiffuser
-path_to_isaacgym=/home/kdyun/isaacgym
-path_to_walktheseways=/home/kdyun/Desktop/walk-these-ways
+path_to_isaacgym=/home/kdyun/workspace/isaacgym
+path_to_walktheseways=/home/kdyun/workspace/wtw
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
