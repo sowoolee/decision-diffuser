@@ -113,8 +113,8 @@ def load_test_env(label, headless=False):
 
     Cfg.env.num_recording_envs = 1
     Cfg.env.num_envs = 1
-    Cfg.terrain.num_rows = 5
-    Cfg.terrain.num_cols = 5
+    Cfg.terrain.num_rows = 10
+    Cfg.terrain.num_cols = 10
     Cfg.terrain.border_size = 0
     Cfg.terrain.center_robots = True
     Cfg.terrain.center_span = 1
@@ -536,7 +536,7 @@ def test(headless=False):
 
     recorded_obs = [deepcopy(obs_shot[:, None])]
 
-    while t < 1:
+    while t < 250:
         # action sampling
         if not replay:
             obs = dataset.normalizer.normalize(obs, 'observations')
@@ -560,6 +560,8 @@ def test(headless=False):
             if t == 0:
                 normed_observations = samples[:, :, :]
                 observations = dataset.normalizer.unnormalize(normed_observations, 'observations')
+                scaled_xy = samples[:,:,0:2] * 2.5
+                observations = np.concatenate([scaled_xy, observations[:,:,2:]], axis=-1)
                 savepath = None
                 renderer.composite2(savepath, observations, 'plan')
 
@@ -597,7 +599,7 @@ def test(headless=False):
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
     savepath = None
-    renderer.composite2(savepath, recorded_obs, 'trot_seed'+str(Config.seed))
+    renderer.composite2(savepath, recorded_obs, 'bound_rand_seed'+str(Config.seed))
 
     # for i in tqdm(range(num_eval_steps)):
     #     with torch.no_grad():
