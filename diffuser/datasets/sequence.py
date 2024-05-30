@@ -103,7 +103,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         normed_obs = self.fields.normed_observations[path_ind, start:end]
         normed_other = normed_obs[:,2:]
         # scale manually
-        unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2]) / 2.5
+        unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2])
         observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
 
         actions = self.fields.normed_actions[path_ind, start:end]

@@ -480,13 +480,18 @@ def test(headless=False):
 
 
     # y conditioning
-    gait_idx = 3
+    gait_idx = 1
     gait_indices = [gait_idx for _ in range(num_eval)]  # just for one gait
     random_gaits = [list(gaits.values())[idx] for idx in gait_indices]
     gait = torch.tensor(random_gaits)
     step_frequency = 3.0
 
-    returns = to_device(torch.Tensor([[gait_idx,1.5,0,0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx,1.0,0.0,0.0] for i in range(num_eval)]), device)
+
+    # evaluation setting
+    replay = False
+    random_start = True
+    set_batch_state = True
 
 
     # bring train dataset
@@ -498,25 +503,27 @@ def test(headless=False):
 
     x = batch[0]
     cond = batch[1]
+    # if set_batch_state: returns = batch[2]
 
     state = to_np(x[:, :, action_dim:])
     state = dataset.normalizer.unnormalize(state, 'observations')
+    true_action = to_np(x[:,:, :action_dim])
 
     # testing start
     t = 0
-    replay = False
-    random_start = True
 
     env.reset()
     obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
 
     # set batch state
-    env_ids = torch.tensor([0], dtype=torch.int32, device=device)
-    dof_pos = to_torch(obs[:,18:30])
-    dof_vel = to_torch(obs[:,30:42])
-    base_state = to_torch([obs[0, 0:13]])
-    base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:13]], axis=-1))
-    env.set_idx_state(env_ids, dof_pos, dof_vel, base_state)
+    if set_batch_state:
+        env_ids = torch.tensor([0], dtype=torch.int32, device=device)
+        dof_pos = to_torch(obs[:,18:30])
+        dof_vel = to_torch(obs[:,30:42])
+        base_state = to_torch([obs[0, 0:13]])
+        base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:13]], axis=-1))
+        env.set_idx_state(env_ids, dof_pos, dof_vel, base_state)
+
     env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
 
     # set clock inputs
@@ -560,7 +567,7 @@ def test(headless=False):
             if t == 0:
                 normed_observations = samples[:, :, :]
                 observations = dataset.normalizer.unnormalize(normed_observations, 'observations')
-                scaled_xy = samples[:,:,0:2] * 2.5
+                scaled_xy = samples[:,:,0:2]
                 observations = np.concatenate([scaled_xy, observations[:,:,2:]], axis=-1)
                 savepath = None
                 renderer.composite2(savepath, observations, 'plan')
@@ -599,7 +606,7 @@ def test(headless=False):
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
     savepath = None
-    renderer.composite2(savepath, recorded_obs, 'bound_rand_seed'+str(Config.seed))
+    renderer.composite2(savepath, recorded_obs, 'trot_fwd_seed')
 
     # for i in tqdm(range(num_eval_steps)):
     #     with torch.no_grad():

@@ -194,23 +194,37 @@ class Trainer(object):
                 loss, infos = self.model.loss(*batch)
                 loss = loss / self.gradient_accumulate_every
                 loss.backward()
-                if step % 20 == 0:
-                    diff_losses, inv_loss, _ = self.model.loss1(*batch)
-                    diff_loss = diff_losses.mean()
-
-                    scaled_loss = np.sqrt(to_np(diff_losses)) / 2. * state_scale
-
-                    writer.add_scalar("loss/diff loss", diff_loss, step)
-                    writer.add_scalar("loss/inv loss", inv_loss, step)
+                # if step % 20 == 0:
+                #     diff_losses, inv_loss, _ = self.model.loss1(*batch)
+                #     diff_loss = diff_losses.mean()
+                #
+                #     scaled_loss = np.sqrt(to_np(diff_losses)) / 2. * state_scale
+                #
+                #     writer.add_scalar("loss/diff loss", diff_loss, step)
+                #     writer.add_scalar("loss/inv loss", inv_loss, step)
 
                 if step % 100 == 0:
-                    _, _, _, x_targ, x_pred = self.model.loss2(*batch)
+                    diff_losses, inv_loss, x_targ, x_pred, a_targ, a_pred = self.model.loss2(*batch)
+                    diff_loss = diff_losses.mean()
+
+                    normed_loss = (to_np(x_targ) - to_np(x_pred)) ** 2
+                    normed_loss = np.mean(normed_loss, axis=(0,1))
                     targ_unnormed = self.dataset.normalizer.unnormalize(to_np(x_targ), 'observations')
                     pred_unnormed = self.dataset.normalizer.unnormalize(to_np(x_pred), 'observations')
                     org_loss = (targ_unnormed - pred_unnormed) ** 2
                     org_loss = np.mean(org_loss, axis=(0,1))
 
-                    writer.add_scalar("error/base_pos[m]", np.sqrt(np.sum(org_loss[0:3])), step)
+                    a_unnormed = self.dataset.normalizer.unnormalize(to_np(a_targ), 'actions')
+                    a_pred_unnormed = self.dataset.normalizer.unnormalize(to_np(a_pred), 'actions')
+                    unnormed_inv_loss = (a_pred_unnormed - a_unnormed) ** 2
+                    unnormed_inv_loss = np.mean(unnormed_inv_loss, axis=(0,1))
+
+                    writer.add_scalar("loss/diff loss", diff_loss, step)
+                    writer.add_scalar("loss/inv loss", inv_loss, step)
+                    writer.add_scalar("loss/unnormed inv loss", unnormed_inv_loss, step)
+
+                    writer.add_scalar("error/base_pos[m]", np.sqrt(np.sum(normed_loss[0:2])), step)
+                    # writer.add_scalar("error/base_pos[m]", np.sqrt(np.sum(org_loss[0:3])), step)
                     writer.add_scalar("error/base_ori[quat]", np.sqrt(np.sum(org_loss[3:7])), step)
                     writer.add_scalar("error/base_lin_vel[m/s]", np.sqrt(np.sum(org_loss[7:10])), step)
                     writer.add_scalar("error/base_ang_vel[rad/s]", np.sqrt(np.sum(org_loss[10:13])), step)
@@ -235,8 +249,8 @@ class Trainer(object):
                 metrics['loss'] = loss.detach().item()
                 logger.log_metrics_summary(metrics, default_stats='mean')
 
-            if self.step == 0 and self.sample_freq:
-                self.render_reference(self.n_reference)
+            # if self.step == 0 and self.sample_freq:
+            #     self.render_reference(self.n_reference)
 
             # if self.sample_freq and self.step % self.sample_freq == 0:
             #     if self.model.__class__ == diffuser.models.diffusion.GaussianInvDynDiffusion:
@@ -566,7 +580,7 @@ class Trainer(object):
             if self.ema_model.returns_condition:
                 # returns = to_device( 0.9 * torch.ones(n_samples, 1), self.device)
                 ############################ change the gait here ######################################
-                returns = to_device(torch.Tensor([[1, 1.5, 0, 0]
+                returns = to_device(torch.Tensor([[1, 1.0, 0, 0]
                                                   for i in range(n_samples)]), self.device)
                 #########################################################################################
             else:
@@ -597,11 +611,8 @@ class Trainer(object):
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-
-            #### @TODO: remove block-stacking specific stuff
-            # from diffusion.datasets.preprocessing import blocks_euler_to_quat, blocks_add_kuka
-            # observations = blocks_add_kuka(observations)
-            ####
+            scaled_xy = normed_observations[:, :, 0:2]
+            observations = np.concatenate([scaled_xy, observations[:, :, 2:]], axis=-1)
 
             savepath = os.path.join('images', f'sample-{i}.png')
             name = str(self.step)

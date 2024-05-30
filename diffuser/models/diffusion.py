@@ -349,6 +349,7 @@ class GaussianInvDynDiffusion(nn.Module):
 
         ## get loss coefficients and initialize objective
         loss_weights = self.get_loss_weights(loss_discount)
+        custom_loss_weights = self.get_custom_loss_weights(range(-24, 0))
         self.loss_fn = Losses['state_l2'](loss_weights)
         self.each_loss_fn = Losses['each_state_l2'](loss_weights)
 
@@ -370,6 +371,28 @@ class GaussianInvDynDiffusion(nn.Module):
         discounts = discount ** torch.arange(self.horizon, dtype=torch.float)
         discounts = discounts / discounts.mean()
         loss_weights = torch.einsum('h,t->ht', discounts, dim_weights)
+        # Cause things are conditioned on t=0
+        if self.predict_epsilon:
+            loss_weights[0, :] = 0
+
+        return loss_weights
+
+    def get_custom_loss_weights(self, scale_dim):
+        '''
+            sets loss coefficients for trajectory
+
+            action_weight   : float
+                coefficient on first action loss
+            discount   : float
+                multiplies t^th timestep of trajectory loss by discount**t
+            weights_dict    : dict
+                { i: c } multiplies dimension i of observation loss by c
+        '''
+        self.action_weight = 1
+        dim_weights = torch.ones(self.observation_dim, dtype=torch.float32)
+        for dim in scale_dim:
+            dim_weights[dim] = 1.5
+        loss_weights = dim_weights.repeat(self.horizon,1)
         # Cause things are conditioned on t=0
         if self.predict_epsilon:
             loss_weights[0, :] = 0
@@ -685,7 +708,7 @@ class GaussianInvDynDiffusion(nn.Module):
                 pred_a_t = self.inv_model(x_comb_t)
                 inv_loss = F.mse_loss(pred_a_t, a_t)
 
-        return diffuse_loss, inv_loss, info, x0, x0_pred
+        return diffuse_loss, inv_loss, x0, x0_pred, a_t, pred_a_t
 
 
     def forward(self, cond, *args, **kwargs):
