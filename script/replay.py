@@ -486,12 +486,12 @@ def test(headless=False):
     gait = torch.tensor(random_gaits)
     step_frequency = 3.0
 
-    returns = to_device(torch.Tensor([[gait_idx,1.0,0.0,0.0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx,0.0,0.0,0.0] for i in range(num_eval)]), device)
 
     # evaluation setting
     replay = False
     random_start = True
-    set_batch_state = True
+    set_batch_state = False
 
 
     # bring train dataset
@@ -508,6 +508,10 @@ def test(headless=False):
     state = to_np(x[:, :, action_dim:])
     state = dataset.normalizer.unnormalize(state, 'observations')
     true_action = to_np(x[:,:, :action_dim])
+
+    obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
+    a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
+    dataset.normalizer.unnormalize(to_np(a), 'actions') -dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
 
     # testing start
     t = 0
@@ -606,7 +610,7 @@ def test(headless=False):
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
     savepath = None
-    renderer.composite2(savepath, recorded_obs, 'trot_fwd_seed')
+    renderer.composite2(savepath, recorded_obs, 'trot_fwd_0.75_1M')
 
     # for i in tqdm(range(num_eval_steps)):
     #     with torch.no_grad():

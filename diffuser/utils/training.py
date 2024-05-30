@@ -115,7 +115,7 @@ class Trainer(object):
         sample_freq=1000,
         save_freq=1000,
         eval_freq=1000,
-        record_freq=10000,
+        record_freq=50000,
         label_freq=100000,
         save_parallel=False,
         n_reference=8,
@@ -203,7 +203,7 @@ class Trainer(object):
                 #     writer.add_scalar("loss/diff loss", diff_loss, step)
                 #     writer.add_scalar("loss/inv loss", inv_loss, step)
 
-                if step % 100 == 0:
+                if step %  2000 == 0:
                     diff_losses, inv_loss, x_targ, x_pred, a_targ, a_pred = self.model.loss2(*batch)
                     diff_loss = diff_losses.mean()
 
@@ -249,8 +249,8 @@ class Trainer(object):
                 metrics['loss'] = loss.detach().item()
                 logger.log_metrics_summary(metrics, default_stats='mean')
 
-            # if self.step == 0 and self.sample_freq:
-            #     self.render_reference(self.n_reference)
+            if self.step == 0 and self.sample_freq:
+                self.render_reference(self.n_reference)
 
             # if self.sample_freq and self.step % self.sample_freq == 0:
             #     if self.model.__class__ == diffuser.models.diffusion.GaussianInvDynDiffusion:
@@ -576,11 +576,13 @@ class Trainer(object):
                 'b d -> (repeat b) d', repeat=n_samples,
             )
 
+            commands = [[1,1.0,0,0], [1,-1.0,0,0], [1,0,0.5,0], [1,0,0,1]]
+
             ## [ n_samples x horizon x (action_dim + observation_dim) ]
             if self.ema_model.returns_condition:
                 # returns = to_device( 0.9 * torch.ones(n_samples, 1), self.device)
                 ############################ change the gait here ######################################
-                returns = to_device(torch.Tensor([[1, 1.0, 0, 0]
+                returns = to_device(torch.Tensor([random.choice(commands)
                                                   for i in range(n_samples)]), self.device)
                 #########################################################################################
             else:

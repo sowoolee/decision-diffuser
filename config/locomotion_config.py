@@ -18,7 +18,7 @@ class Config(ParamsProto):
     loss_weights = None
     loss_discount = 1
     predict_epsilon = False
-    dim_mults = (1, 4, 8) # 1,4,8
+    dim_mults = (1, 4, 4, 8) # 1,4,8
     returns_condition = True
     calc_energy=False
     dim = 256 # 128
@@ -57,4 +57,4 @@ class Config(ParamsProto):
     n_saves = 5
     save_parallel = False
     n_reference = 8
-    save_checkpoints = False
+    save_checkpoints = True
