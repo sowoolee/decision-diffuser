@@ -4,7 +4,7 @@ from params_proto import ParamsProto, PrefixProto, Proto
 
 class Config(ParamsProto):
     # misc
-    seed = 100
+    seed = 201
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     bucket = '/home/kdyun/workspace/decidiff/code/weights/'
     dataset = 'hopper-medium-expert-v2'
@@ -41,9 +41,10 @@ class Config(ParamsProto):
     train_only_inv = False
     termination_penalty = -100
     returns_scale = 400.0 # Determined using rewards from the dataset
+    action_scale = 1.0
 
     ## training
-    n_steps_per_epoch = 1000000
+    n_steps_per_epoch = 100001
     loss_type = 'l2'
     n_train_steps = 1e6
     batch_size = 32 # 32
@@ -52,9 +53,10 @@ class Config(ParamsProto):
     ema_decay = 0.995
     log_freq = 1000
     save_freq = 5000
+    record_freq = 25000
     sample_freq = 1000
     eval_freq = 1000
     n_saves = 5
     save_parallel = False
-    n_reference = 8
+    n_reference = 4
     save_checkpoints = True

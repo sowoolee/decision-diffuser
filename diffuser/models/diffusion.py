@@ -305,7 +305,10 @@ class GaussianInvDynDiffusion(nn.Module):
             self.inv_model = ARInvModel(hidden_dim=hidden_dim, observation_dim=observation_dim, action_dim=action_dim)
         else:
             self.inv_model = nn.Sequential(
-                nn.Linear(2 * self.observation_dim, hidden_dim),
+                # nn.Linear(2 * self.observation_dim, hidden_dim),
+                nn.Linear(2 * (self.observation_dim - 5), hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
@@ -333,6 +336,9 @@ class GaussianInvDynDiffusion(nn.Module):
         self.register_buffer('log_one_minus_alphas_cumprod', torch.log(1. - alphas_cumprod))
         self.register_buffer('sqrt_recip_alphas_cumprod', torch.sqrt(1. / alphas_cumprod))
         self.register_buffer('sqrt_recipm1_alphas_cumprod', torch.sqrt(1. / alphas_cumprod - 1))
+
+        # self.register_buffer('sqrt_recip_alphas_1malphas_cumprod', torch.sqrt(1. / ((1. - alphas_cumprod) * alphas_cumprod)))
+        # self.register_buffer('sqrt_recip_1malphas_cumprod', torch.sqrt(1. / (1. - alphas_cumprod)))
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
@@ -414,6 +420,22 @@ class GaussianInvDynDiffusion(nn.Module):
         else:
             return noise
 
+    def predict_start_from_noise2(self, x_t, t, noise):
+        '''
+            if self.predict_epsilon, model output is (scaled) noise;
+            otherwise, model predicts x0 directly
+        '''
+        return (
+            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+        )
+
+    def predict_noise_from_start(self, x_t, t, x0):
+        return (
+            (1. / extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape)) * x_t -
+            (1. / extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)) * x0
+        )
+
     def q_posterior(self, x_start, x_t, t):
         posterior_mean = (
             extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
@@ -424,16 +446,30 @@ class GaussianInvDynDiffusion(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(self, x, cond, t, returns=None):
-        if self.returns_condition:
-            # epsilon could be epsilon or x0 itself
-            epsilon_cond = self.model(x, cond, t, returns, use_dropout=False)
-            epsilon_uncond = self.model(x, cond, t, returns, force_dropout=True)
-            epsilon = epsilon_uncond + self.condition_guidance_w*(epsilon_cond - epsilon_uncond)
+        if type(returns) == list:
+            x0 = self.model(x, cond, t, returns[0], force_dropout=True)
+            epsilon = self.predict_noise_from_start(x, t, x0)
+            for ret in returns:
+                x0_cond = self.model(x, cond, t, ret, use_dropout=False)
+                x0_uncond = self.model(x, cond, t, ret, force_dropout=True)
+                eps_cond = self.predict_noise_from_start(x, t, x0_cond)
+                eps_uncond = self.predict_noise_from_start(x, t, x0_uncond)
+                epsilon += self.condition_guidance_w * (eps_cond - eps_uncond)
         else:
-            epsilon = self.model(x, cond, t)
+            if self.returns_condition:
+                # epsilon could be epsilon or x0 itself
+                epsilon_cond = self.model(x, cond, t, returns, use_dropout=False)
+                epsilon_uncond = self.model(x, cond, t, returns, force_dropout=True)
+                epsilon = epsilon_uncond + self.condition_guidance_w*(epsilon_cond - epsilon_uncond)
+            else:
+                epsilon = self.model(x, cond, t)
 
         t = t.detach().to(torch.int64)
-        x_recon = self.predict_start_from_noise(x, t=t, noise=epsilon)
+
+        if type(returns) == list:
+            x_recon = self.predict_start_from_noise2(x, t=t, noise=epsilon)
+        else:
+            x_recon = self.predict_start_from_noise(x, t=t, noise=epsilon)
 
         if self.clip_denoised:
             x_recon.clamp_(-1., 1.)
@@ -625,6 +661,12 @@ class GaussianInvDynDiffusion(nn.Module):
             x_t_1 = x[:, 1:, self.action_dim:]
             x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
             x_comb_t = x_comb_t.reshape(-1, 2 * self.observation_dim)
+
+            x_t = torch.cat([x[:, :-1, self.action_dim:self.action_dim+13], x[:, :-1, -24:]], dim=-1)
+            x_t_1 = torch.cat([x[:, 1:, self.action_dim:self.action_dim+13], x[:, 1:, -24:]], dim=-1)
+            x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
+            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim-5))
+
             a_t = a_t.reshape(-1, self.action_dim)
             if self.ar_inv:
                 inv_loss = self.inv_model.calc_loss(x_comb_t, a_t)
@@ -655,15 +697,14 @@ class GaussianInvDynDiffusion(nn.Module):
         else:
             batch_size = len(x)
             t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
-            diffuse_loss, info, _, _ = self.p_losses1(x[:, :, self.action_dim:], cond, t, returns)
-            diffuse_loss = diffuse_loss.mean()
-
+            diffuse_loss, info = self.p_losses(x[:, :, self.action_dim:], cond, t, returns)
             # Calculating inv loss
-            x_t = x[:, :-1, self.action_dim:]
             a_t = x[:, :-1, :self.action_dim]
-            x_t_1 = x[:, 1:, self.action_dim:]
+            x_t = torch.cat([x[:, :-1, self.action_dim:self.action_dim+13], x[:, :-1, -24:]], dim=-1)
+            x_t_1 = torch.cat([x[:, 1:, self.action_dim:self.action_dim+13], x[:, 1:, -24:]], dim=-1)
             x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
-            x_comb_t = x_comb_t.reshape(-1, 2 * self.observation_dim)
+            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim-5))
+
             a_t = a_t.reshape(-1, self.action_dim)
             if self.ar_inv:
                 inv_loss = self.inv_model.calc_loss(x_comb_t, a_t)
@@ -671,7 +712,9 @@ class GaussianInvDynDiffusion(nn.Module):
                 pred_a_t = self.inv_model(x_comb_t)
                 inv_loss = F.mse_loss(pred_a_t, a_t)
 
-        return diffuse_loss, inv_loss, info
+            loss = (1 / 2) * (diffuse_loss + inv_loss)
+
+        return loss, info
 
     def loss2(self, x, cond, returns=None):
         if self.train_only_inv:
@@ -701,6 +744,12 @@ class GaussianInvDynDiffusion(nn.Module):
             x_t_1 = x[:, 1:, self.action_dim:]
             x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
             x_comb_t = x_comb_t.reshape(-1, 2 * self.observation_dim)
+
+            x_t = torch.cat([x[:, :-1, self.action_dim:self.action_dim+13], x[:, :-1, -24:]], dim=-1)
+            x_t_1 = torch.cat([x[:, 1:, self.action_dim:self.action_dim+13], x[:, 1:, -24:]], dim=-1)
+            x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
+            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim-5))
+
             a_t = a_t.reshape(-1, self.action_dim)
             if self.ar_inv:
                 inv_loss = self.inv_model.calc_loss(x_comb_t, a_t)

@@ -350,7 +350,7 @@ def import_diffuser():
     Config.device = 'cuda:1'
 
     loadpath = '/home/kdyun/workspace/decidiff/code/weights/diffuser/default_inv/predict_epsilon_200_1000000.0/dropout_0.25/hopper-medium-expert-v2/100/checkpoint'
-    loadpath = os.path.join(loadpath, 'state.pt')
+    loadpath = os.path.join(loadpath, 'state_65000.pt')
     state_dict = torch.load(loadpath, map_location=Config.device)
 
     # Load configs
@@ -449,7 +449,7 @@ def import_diffuser():
     return trainer
 
 
-def test(headless=False):
+def test(headless=False, command='fwd'):
     from ml_logger import logger
 
     from pathlib import Path
@@ -478,6 +478,7 @@ def test(headless=False):
              "bounding": [0, 0.5, 0],
              "pacing": [0, 0, 0.5]}
 
+    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
 
     # y conditioning
     gait_idx = 1
@@ -486,12 +487,14 @@ def test(headless=False):
     gait = torch.tensor(random_gaits)
     step_frequency = 3.0
 
-    returns = to_device(torch.Tensor([[gait_idx,0.0,0.0,0.0] for i in range(num_eval)]), device)
+    # returns = to_device(torch.Tensor([[gait_idx,0.5,0.0,0.0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx, *cmd[command]] for i in range(num_eval)]), device)
 
     # evaluation setting
     replay = False
     random_start = True
-    set_batch_state = False
+    set_batch_state = True
+    exclude_clock = True
 
 
     # bring train dataset
@@ -510,6 +513,11 @@ def test(headless=False):
     true_action = to_np(x[:,:, :action_dim])
 
     obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
+
+    if exclude_clock:
+        s0 = np.concatenate([state[:,0,:13], state[:,0,-24:]], axis=-1)
+        s1 = np.concatenate([state[:,1,:13], state[:,1,-24:]], axis=-1)
+        obs_comb = np.concatenate([s0,s1], axis=-1)
     a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
     dataset.normalizer.unnormalize(to_np(a), 'actions') -dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
 
@@ -560,6 +568,12 @@ def test(headless=False):
             # action sampling
             obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
             obs_comb = obs_comb.reshape(-1, 2 * observation_dim)
+
+            if exclude_clock:
+                s0 = torch.cat([samples[:, 0, :13], samples[:, 0, -24:]], dim=-1)
+                s1 = torch.cat([samples[:, 1, :13], samples[:, 1, -24:]], dim=-1)
+                obs_comb = torch.cat([s0,s1], dim=-1)
+
             action = trainer.ema_model.inv_model(obs_comb)
 
             action = to_np(action)
@@ -574,7 +588,8 @@ def test(headless=False):
                 scaled_xy = samples[:,:,0:2]
                 observations = np.concatenate([scaled_xy, observations[:,:,2:]], axis=-1)
                 savepath = None
-                renderer.composite2(savepath, observations, 'plan')
+                title = command + '_plan'
+                renderer.composite3(savepath, observations, title)
 
         elif replay:
             action = to_np(x[:, t, :action_dim])
@@ -610,7 +625,10 @@ def test(headless=False):
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
     savepath = None
-    renderer.composite2(savepath, recorded_obs, 'trot_fwd_0.75_1M')
+    renderer.composite2(savepath, recorded_obs, command)
+    renderer.composite3(savepath, recorded_obs, command)
+
+    env.close()
 
     # for i in tqdm(range(num_eval_steps)):
     #     with torch.no_grad():
@@ -628,10 +646,723 @@ def test(headless=False):
     #     ''' compare s_t+1 '''
 
 
+def test_cmd(env, trainer, command='fwd', gait_num=1):
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
 
+    observation_dim = dataset.observation_dim
+    action_dim = dataset.action_dim
+
+    action_scale = dataset.action_scale
+
+    # load environment
+    num_eval = env.num_envs
+
+    num_eval_steps = 250
+    gaits = {"pronking": [0, 0, 0],
+             "trotting": [0.5, 0, 0],
+             "bounding": [0, 0.5, 0],
+             "pacing": [0, 0, 0.5]}
+
+    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7], 'fwdrot': [0.7,0,0.35]}
+
+    if type(command) != str:
+        cmd['manual'] = command
+        command = 'manual'
+
+    # y conditioning
+    gait_idx = gait_num
+    gait_indices = [gait_idx for _ in range(num_eval)]  # just for one gait
+    random_gaits = [list(gaits.values())[idx] for idx in gait_indices]
+    gait = torch.tensor(random_gaits)
+    step_frequency = 3.0
+
+    # returns = to_device(torch.Tensor([[gait_idx,0.5,0.0,0.0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx, *cmd[command]] for i in range(num_eval)]), device)
+
+    # evaluation setting
+    replay = False
+    random_start = True
+    set_batch_state = False
+    exclude_clock = True
+
+
+    # bring train dataset
+    dataloader = cycle(torch.utils.data.DataLoader(
+            dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
+        ))
+    batch = next(dataloader)
+    batch = batch_to_device(batch, device=device)
+
+    x = batch[0]
+    cond = batch[1]
+    # if set_batch_state: returns = batch[2]
+
+    state = to_np(x[:, :, action_dim:])
+    state = dataset.normalizer.unnormalize(state, 'observations')
+    true_action = to_np(x[:,:, :action_dim])
+
+    obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
+
+    if exclude_clock:
+        s0 = np.concatenate([state[:,0,:13], state[:,0,-24:]], axis=-1)
+        s1 = np.concatenate([state[:,1,:13], state[:,1,-24:]], axis=-1)
+        obs_comb = np.concatenate([s0,s1], axis=-1)
+    a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
+    dataset.normalizer.unnormalize(to_np(a), 'actions') - dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
+
+    # testing start
+    t = 0
+
+    env.reset()
+    obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
+
+    # set batch state
+    if set_batch_state:
+        env_ids = torch.tensor([0], dtype=torch.int32, device=device)
+        dof_pos = to_torch(obs[:,18:30])
+        dof_vel = to_torch(obs[:,30:42])
+        base_state = to_torch([obs[0, 0:13]])
+        base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:13]], axis=-1))
+        env.set_idx_state(env_ids, dof_pos, dof_vel, base_state)
+
+    env_ids = torch.tensor([0], dtype=torch.int32, device='cuda:0')
+    dof_pos = to_torch([[0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000]], device='cuda:0')
+    base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), to_np([[0.3]]), to_np(env.root_states[:,3:7]), to_np([[0,0,0,0,0,0]])], axis=-1), device='cuda:0')
+    env.set_idx_pose(env_ids, dof_pos, base_state)
+
+    env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+    # set clock inputs
+    env.commands[:, 4] = step_frequency
+    env.commands[:, 5:8] = gait
+    phase_0 = to_torch(obs[:, 17])
+    env.gait_indices = to_torch(obs[:, 17])
+    env.clock_inputs = to_torch(obs[:, 13:17])
+
+    obs = np.concatenate([
+                                to_np([[0.,0.]]),
+                                to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+    obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+
+    recorded_obs = [deepcopy(obs_shot[:, None])]
+
+    while t < 250:
+        # action sampling
+        if not replay:
+            obs = dataset.normalizer.normalize(obs, 'observations')
+            if random_start: obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+            conditions = {0: to_torch(obs, device=device)}
+
+            # state trajectory sampling
+            samples = trainer.ema_model.conditional_sample(conditions, returns)
+
+            # action sampling
+            obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+            obs_comb = obs_comb.reshape(-1, 2 * observation_dim)
+
+            if exclude_clock:
+                s0 = torch.cat([samples[:, 0, :13], samples[:, 0, -24:]], dim=-1)
+                s1 = torch.cat([samples[:, 1, :13], samples[:, 1, -24:]], dim=-1)
+                obs_comb = torch.cat([s0,s1], dim=-1)
+
+            action = trainer.ema_model.inv_model(obs_comb)
+
+            action = to_np(action)
+            # action = dataset.normalizer.unnormalize(action, 'actions')
+            action = action * action_scale
+            action = to_torch(action)
+
+            #trajectory recording
+            samples = to_np(samples)
+            if t == 0:
+                normed_observations = samples[:, :, :]
+                observations = dataset.normalizer.unnormalize(normed_observations, 'observations')
+                scaled_xy = samples[:,:,0:2]
+                observations = np.concatenate([scaled_xy, observations[:,:,2:]], axis=-1)
+                savepath = 'testing'
+                title = command + '_plan'
+                renderer.composite3(savepath, observations, title)
+
+        elif replay:
+            action = to_np(x[:, t, :action_dim])
+            action = dataset.normalizer.unnormalize(action, 'actions')
+            action = to_torch(action)
+
+        # environment step
+        obs_list = []
+        with torch.no_grad():
+            env.commands[:, 4] = step_frequency
+            env.commands[:, 5:8] = gait
+            if t==0: env.gait_indices = phase_0
+
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        this_obs = np.concatenate([ to_np([[0.,0.]]), to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                        to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                        to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                        to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:,:12])], axis=-1)
+
+        obs_list.append(this_obs)
+        obs = np.concatenate(obs_list, axis=0)
+        obs_shot = np.concatenate([to_np(env.root_states[:, 0:2]), obs[:, 2:]], axis=-1)
+        recorded_obs.append(deepcopy(obs_shot[:, None]))
+
+        # compare s_t+1 with dataset
+        # err = state[:,t+1,:] - this_obs
+
+        t += 1
+
+    print('evaluation ended')
+
+    recorded_obs = np.concatenate(recorded_obs, axis=1)
+    title = str(list(gaits.keys())[gait_num]) + '_' + command
+    renderer.composite3('testing', recorded_obs, title)
+
+
+def demo(env, trainer, gait_num=1):
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    observation_dim = dataset.observation_dim
+    action_dim = dataset.action_dim
+
+    action_scale = dataset.action_scale
+
+    # load environment
+    num_eval = env.num_envs
+
+    num_eval_steps = 250
+    gaits = {"pronking": [0, 0, 0],
+             "trotting": [0.5, 0, 0],
+             "bounding": [0, 0.5, 0],
+             "pacing": [0, 0, 0.5]}
+
+    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
+
+    # y conditioning
+    gait_idx = gait_num
+    gait_indices = [gait_idx for _ in range(num_eval)]  # just for one gait
+    random_gaits = [list(gaits.values())[idx] for idx in gait_indices]
+    gait = torch.tensor(random_gaits)
+    step_frequency = 3.0
+
+    # returns = to_device(torch.Tensor([[gait_idx,0.5,0.0,0.0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx, *cmd['fwd']] for i in range(num_eval)]), device)
+
+    # evaluation setting
+    replay = False
+    random_start = True
+    set_batch_state = False
+    exclude_clock = True
+
+
+    # bring train dataset
+    dataloader = cycle(torch.utils.data.DataLoader(
+            dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
+        ))
+    batch = next(dataloader)
+    batch = batch_to_device(batch, device=device)
+
+    x = batch[0]
+    cond = batch[1]
+    # if set_batch_state: returns = batch[2]
+
+    state = to_np(x[:, :, action_dim:])
+    state = dataset.normalizer.unnormalize(state, 'observations')
+    true_action = to_np(x[:,:, :action_dim])
+
+    obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
+
+    if exclude_clock:
+        s0 = np.concatenate([state[:,0,:13], state[:,0,-24:]], axis=-1)
+        s1 = np.concatenate([state[:,1,:13], state[:,1,-24:]], axis=-1)
+        obs_comb = np.concatenate([s0,s1], axis=-1)
+    a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
+    dataset.normalizer.unnormalize(to_np(a), 'actions') - dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
+
+    # testing start
+    t = 0
+
+    env.reset()
+    obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
+
+    # set batch state
+    if set_batch_state:
+        env_ids = torch.tensor([0], dtype=torch.int32, device=device)
+        dof_pos = to_torch(obs[:,18:30])
+        dof_vel = to_torch(obs[:,30:42])
+        base_state = to_torch([obs[0, 0:13]])
+        base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:13]], axis=-1))
+        env.set_idx_state(env_ids, dof_pos, dof_vel, base_state)
+
+    env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+    # set clock inputs
+    env.commands[:, 4] = step_frequency
+    env.commands[:, 5:8] = gait
+    phase_0 = to_torch(obs[:, 17])
+    env.gait_indices = to_torch(obs[:, 17])
+    env.clock_inputs = to_torch(obs[:, 13:17])
+
+    obs = np.concatenate([
+                                to_np([[0.,0.]]),
+                                to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+    obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+
+    recorded_obs = [deepcopy(obs_shot[:, None])]
+
+    while t < 700:
+        if t < 100:
+            returns = to_device(torch.Tensor([[gait_idx, *cmd['fwd']] for i in range(num_eval)]), device)
+        elif t < 200:
+            returns = to_device(torch.Tensor([[gait_idx, *cmd['right']] for i in range(num_eval)]), device)
+        elif t < 300:
+            returns = to_device(torch.Tensor([[gait_idx, *cmd['bwd']] for i in range(num_eval)]), device)
+        elif t < 400:
+            returns = to_device(torch.Tensor([[gait_idx, *cmd['left']] for i in range(num_eval)]), device)
+        else:
+            returns = to_device(torch.Tensor([[gait_idx, *cmd['rot']] for i in range(num_eval)]), device)
+
+        # action sampling
+        if not replay:
+            obs = dataset.normalizer.normalize(obs, 'observations')
+            if random_start: obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+            conditions = {0: to_torch(obs, device=device)}
+
+            # state trajectory sampling
+            samples = trainer.ema_model.conditional_sample(conditions, returns)
+
+            # action sampling
+            obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+            obs_comb = obs_comb.reshape(-1, 2 * observation_dim)
+
+            if exclude_clock:
+                s0 = torch.cat([samples[:, 0, :13], samples[:, 0, -24:]], dim=-1)
+                s1 = torch.cat([samples[:, 1, :13], samples[:, 1, -24:]], dim=-1)
+                obs_comb = torch.cat([s0,s1], dim=-1)
+
+            action = trainer.ema_model.inv_model(obs_comb)
+
+            action = to_np(action)
+            # action = dataset.normalizer.unnormalize(action, 'actions')
+            action = action * action_scale
+            action = to_torch(action)
+
+            #trajectory recording
+            samples = to_np(samples)
+
+        # environment step
+        obs_list = []
+        with torch.no_grad():
+            env.commands[:, 4] = step_frequency
+            env.commands[:, 5:8] = gait
+            if t==0: env.gait_indices = phase_0
+
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        this_obs = np.concatenate([ to_np([[0.,0.]]), to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                        to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                        to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                        to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:,:12])], axis=-1)
+
+        obs_list.append(this_obs)
+        obs = np.concatenate(obs_list, axis=0)
+        obs_shot = np.concatenate([to_np(env.root_states[:, 0:2]), obs[:, 2:]], axis=-1)
+        recorded_obs.append(deepcopy(obs_shot[:, None]))
+
+        t += 1
+
+    print('evaluation ended')
+
+    recorded_obs = np.concatenate(recorded_obs, axis=1)
+    title = 'demo_' + str(list(gaits.keys())[gait_num])
+    renderer.composite3('testing', recorded_obs, title)
+
+def demo2(env, trainer):
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    observation_dim = dataset.observation_dim
+    action_dim = dataset.action_dim
+
+    action_scale = dataset.action_scale
+
+    # load environment
+    num_eval = env.num_envs
+
+    num_eval_steps = 250
+    gaits = {"pronking": [0, 0, 0],
+             "trotting": [0.5, 0, 0],
+             "bounding": [0, 0.5, 0],
+             "pacing": [0, 0, 0.5]}
+
+    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
+
+    # y conditioning
+    gait_idx = 1
+    gait_indices = [gait_idx for _ in range(num_eval)]  # just for one gait
+    random_gaits = [list(gaits.values())[idx] for idx in gait_indices]
+    gait = torch.tensor(random_gaits)
+    step_frequency = 3.0
+
+    # returns = to_device(torch.Tensor([[gait_idx,0.5,0.0,0.0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx, *cmd['fwd']] for i in range(num_eval)]), device)
+
+    # evaluation setting
+    replay = False
+    random_start = True
+    set_batch_state = False
+    exclude_clock = True
+
+
+    # bring train dataset
+    dataloader = cycle(torch.utils.data.DataLoader(
+            dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
+        ))
+    batch = next(dataloader)
+    batch = batch_to_device(batch, device=device)
+
+    x = batch[0]
+    cond = batch[1]
+    # if set_batch_state: returns = batch[2]
+
+    state = to_np(x[:, :, action_dim:])
+    state = dataset.normalizer.unnormalize(state, 'observations')
+    true_action = to_np(x[:,:, :action_dim])
+
+    obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
+
+    if exclude_clock:
+        s0 = np.concatenate([state[:,0,:13], state[:,0,-24:]], axis=-1)
+        s1 = np.concatenate([state[:,1,:13], state[:,1,-24:]], axis=-1)
+        obs_comb = np.concatenate([s0,s1], axis=-1)
+    a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
+    dataset.normalizer.unnormalize(to_np(a), 'actions') - dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
+
+    # testing start
+    t = 0
+
+    env.reset()
+    obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
+
+    # set batch state
+    env_ids = torch.tensor([0], dtype=torch.int32, device='cuda:0')
+    dof_pos = to_torch([[0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000]], device='cuda:0')
+    base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), to_np([[0.3]]), to_np(env.root_states[:,3:7]), to_np([[0,0,0,0,0,0]])], axis=-1), device='cuda:0')
+    env.set_idx_pose(env_ids, dof_pos, base_state)
+
+    env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+    # set clock inputs
+    env.commands[:, 4] = step_frequency
+    env.commands[:, 5:8] = gait
+    phase_0 = to_torch(obs[:, 17])
+    env.gait_indices = to_torch(obs[:, 17])
+    env.clock_inputs = to_torch(obs[:, 13:17])
+
+    obs = np.concatenate([
+                                to_np([[0.,0.]]),
+                                to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+    obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+
+    recorded_obs = [deepcopy(obs_shot[:, None])]
+
+    while t < 700:
+        if t < 100:
+            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
+            gait = torch.tensor(random_gaits)
+        elif t < 200:
+            returns = to_device(torch.Tensor([[2, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[2]]
+            gait = torch.tensor(random_gaits)
+        elif t < 300:
+            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
+            gait = torch.tensor(random_gaits)
+        elif t < 400:
+            returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[3]]
+            gait = torch.tensor(random_gaits)
+        elif t < 500:
+            returns = to_device(torch.Tensor([[2, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[2]]
+            gait = torch.tensor(random_gaits)
+        elif t < 600:
+            returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[3]]
+            gait = torch.tensor(random_gaits)
+        else:
+            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
+            gait = torch.tensor(random_gaits)
+
+        # action sampling
+        if not replay:
+            obs = dataset.normalizer.normalize(obs, 'observations')
+            if random_start: obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+            conditions = {0: to_torch(obs, device=device)}
+
+            # state trajectory sampling
+            samples = trainer.ema_model.conditional_sample(conditions, returns)
+
+            # action sampling
+            obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+            obs_comb = obs_comb.reshape(-1, 2 * observation_dim)
+
+            if exclude_clock:
+                s0 = torch.cat([samples[:, 0, :13], samples[:, 0, -24:]], dim=-1)
+                s1 = torch.cat([samples[:, 1, :13], samples[:, 1, -24:]], dim=-1)
+                obs_comb = torch.cat([s0,s1], dim=-1)
+
+            action = trainer.ema_model.inv_model(obs_comb)
+
+            action = to_np(action)
+            # action = dataset.normalizer.unnormalize(action, 'actions')
+            action = action * action_scale
+            action = to_torch(action)
+
+            #trajectory recording
+            samples = to_np(samples)
+
+        # environment step
+        obs_list = []
+        with torch.no_grad():
+            env.commands[:, 4] = step_frequency
+            env.commands[:, 5:8] = gait
+            if t==0: env.gait_indices = phase_0
+
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        this_obs = np.concatenate([ to_np([[0.,0.]]), to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                        to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                        to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                        to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:,:12])], axis=-1)
+
+        obs_list.append(this_obs)
+        obs = np.concatenate(obs_list, axis=0)
+        obs_shot = np.concatenate([to_np(env.root_states[:, 0:2]), obs[:, 2:]], axis=-1)
+        recorded_obs.append(deepcopy(obs_shot[:, None]))
+
+        t += 1
+
+    print('evaluation ended')
+
+    recorded_obs = np.concatenate(recorded_obs, axis=1)
+    title = 'demo_transition'
+    renderer.composite3('testing', recorded_obs, title)
+
+def demo3(env, trainer, gait_nums=[1,2]):
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    observation_dim = dataset.observation_dim
+    action_dim = dataset.action_dim
+
+    action_scale = dataset.action_scale
+
+    # load environment
+    num_eval = env.num_envs
+
+    num_eval_steps = 250
+    gaits = {"pronking": [0, 0, 0],
+             "trotting": [0.5, 0, 0],
+             "bounding": [0, 0.5, 0],
+             "pacing": [0, 0, 0.5]}
+
+    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7], 'fwdrot': [0.7,0,0.35]}
+
+    # y conditioning
+    gait_idx = gait_nums[1]
+    gait_indices = [gait_idx for _ in range(num_eval)]  # just for one gait
+    random_gaits = [list(gaits.values())[idx] for idx in gait_indices]
+    gait = torch.tensor(random_gaits)
+    step_frequency = 3.0
+
+    # evaluation setting
+    replay = False
+    random_start = True
+    set_batch_state = False
+    exclude_clock = True
+
+
+    # bring train dataset
+    dataloader = cycle(torch.utils.data.DataLoader(
+            dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
+        ))
+    batch = next(dataloader)
+    batch = batch_to_device(batch, device=device)
+
+    x = batch[0]
+    cond = batch[1]
+
+    state = to_np(x[:, :, action_dim:])
+    state = dataset.normalizer.unnormalize(state, 'observations')
+    true_action = to_np(x[:,:, :action_dim])
+
+    # testing start
+    t = 0
+
+    returns = []
+    for gait_num in gait_nums:
+        returns.append( to_device(torch.Tensor([[gait_num, *cmd['fwd']] for i in range(num_eval)]), device) )
+
+    env.reset()
+    obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
+
+    # set batch state
+    env_ids = torch.tensor([0], dtype=torch.int32, device='cuda:0')
+    dof_pos = to_torch([[0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000]], device='cuda:0')
+    base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), to_np([[0.3]]), to_np(env.root_states[:,3:7]), to_np([[0,0,0,0,0,0]])], axis=-1), device='cuda:0')
+    env.set_idx_pose(env_ids, dof_pos, base_state)
+
+    env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+    # set clock inputs
+    env.commands[:, 4] = step_frequency
+    env.commands[:, 5:8] = gait
+    phase_0 = to_torch(obs[:, 17])
+    env.gait_indices = to_torch(obs[:, 17])
+    env.clock_inputs = to_torch(obs[:, 13:17])
+
+    obs = np.concatenate([
+                                to_np([[0.,0.]]),
+                                to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+    obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+
+    recorded_obs = [deepcopy(obs_shot[:, None])]
+
+    while t < 250:
+        # action sampling
+        if not replay:
+            obs = dataset.normalizer.normalize(obs, 'observations')
+            if random_start: obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+            conditions = {0: to_torch(obs, device=device)}
+
+            # state trajectory sampling
+            samples = trainer.ema_model.conditional_sample(conditions, returns)
+
+            # action sampling
+            obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+            obs_comb = obs_comb.reshape(-1, 2 * observation_dim)
+
+            if exclude_clock:
+                s0 = torch.cat([samples[:, 0, :13], samples[:, 0, -24:]], dim=-1)
+                s1 = torch.cat([samples[:, 1, :13], samples[:, 1, -24:]], dim=-1)
+                obs_comb = torch.cat([s0,s1], dim=-1)
+
+            action = trainer.ema_model.inv_model(obs_comb)
+
+            action = to_np(action)
+            # action = dataset.normalizer.unnormalize(action, 'actions')
+            action = action * action_scale
+            action = to_torch(action)
+
+            #trajectory recording
+            samples = to_np(samples)
+            if t == 2:
+                normed_observations = samples[:, :, :]
+                observations = dataset.normalizer.unnormalize(normed_observations, 'observations')
+                scaled_xy = samples[:,:,0:2]
+                observations = np.concatenate([scaled_xy, observations[:,:,2:]], axis=-1)
+                savepath = 'testing'
+                title = str(list(gaits.keys())[gait_nums[0]]) + '_' + str(list(gaits.keys())[gait_nums[1]]) + '_plan'
+                renderer.composite3(savepath, observations, title)
+
+        # environment step
+        obs_list = []
+        with torch.no_grad():
+            env.commands[:, 4] = step_frequency
+            env.commands[:, 5:8] = gait
+            if t==0: env.gait_indices = phase_0
+
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        this_obs = np.concatenate([ to_np([[0.,0.]]), to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                        to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                        to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                        to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:,:12])], axis=-1)
+
+        obs_list.append(this_obs)
+        obs = np.concatenate(obs_list, axis=0)
+        obs_shot = np.concatenate([to_np(env.root_states[:, 0:2]), obs[:, 2:]], axis=-1)
+        recorded_obs.append(deepcopy(obs_shot[:, None]))
+
+        t += 1
+
+    print('evaluation ended')
+
+    recorded_obs = np.concatenate(recorded_obs, axis=1)
+    title = 'mixing_' + str(list(gaits.keys())[gait_nums[0]]) + '_' + str(list(gaits.keys())[gait_nums[1]])
+    renderer.composite3('testing', recorded_obs, title)
+
+def test_serial(headless=False):
+    from ml_logger import logger
+
+    from pathlib import Path
+    from go1_gym import MINI_GYM_ROOT_DIR
+    import glob
+    import os
+
+    # import diffusion model
+    trainer = import_diffuser()
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    observation_dim = dataset.observation_dim
+    action_dim = dataset.action_dim
+
+
+    # load environment
+    label = "gait-conditioned-agility/pretrain-v0/train"
+    env = load_test_env(label, headless=headless)
+    num_eval = env.num_envs
+
+    # test_cmd(env, trainer, command='fwd')
+    # test_cmd(env, trainer, command='bwd')
+    # test_cmd(env, trainer, command='left')
+    # test_cmd(env, trainer, command='rot')
+
+    # demo(env, trainer, 1)
+    # demo(env, trainer, 2)
+    # demo(env, trainer, 3)
+
+    demo2(env, trainer)
+    # test_cmd(env, trainer, [0, 0, 0], 1)
+    # test_cmd(env, trainer, [0, 0, 0], 2)
+    # test_cmd(env, trainer, [0, 0, 0], 3)
+    # test_cmd(env, trainer, 'fwdrot', 1)
+    # test_cmd(env, trainer, 'fwdrot', 2)
+    # test_cmd(env, trainer, 'fwdrot', 3)
+
+    # demo3(env, trainer, [1, 2])
+    # demo3(env, trainer, [2, 3])
+    # demo3(env, trainer, [1, 3])
 
 
 if __name__ == '__main__':
     # to see the environment rendering, set headless=False
     # save(headless=False)
-    test()
+    test_serial()

@@ -152,8 +152,6 @@ class TemporalUnet(nn.Module):
                         act_fn,
                         nn.Linear(dim, dim * 4),
                         act_fn,
-                        nn.Linear(dim * 4, dim * 4),
-                        act_fn,
                         nn.Linear(dim * 4, dim),
                     )
             self.mask_dist = Bernoulli(probs=1-self.condition_dropout)

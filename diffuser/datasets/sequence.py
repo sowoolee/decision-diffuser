@@ -14,11 +14,24 @@ RewardBatch = namedtuple('Batch', 'trajectories conditions returns')
 Batch = namedtuple('Batch', 'trajectories conditions')
 ValueBatch = namedtuple('ValueBatch', 'trajectories conditions values')
 
+def count_significant_digits(number):
+    """Calculate the number of significant digits in a given number."""
+    if number == 0:
+        return 1
+
+    str_number = f"{number:.16g}"  # Convert to string with up to 16 significant digits
+    if 'e' in str_number or 'E' in str_number:
+        return len(str_number.split('e')[0].replace('.', '').replace('-', '').replace('+', ''))
+    if '.' in str_number:
+        return len(str_number.replace('.', '').replace('-', '').replace('+', ''))
+    return len(str_number.replace('-', '').replace('+', ''))
+
 class SequenceDataset(torch.utils.data.Dataset):
 
     def __init__(self, env='hopper-medium-replay', horizon=64,
         normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
-        max_n_episodes=100000, termination_penalty=0, use_padding=True, discount=0.99, returns_scale=1000, include_returns=False):
+        max_n_episodes=100000, termination_penalty=0, use_padding=True, discount=0.99, returns_scale=1000, include_returns=False,
+        action_scale = 1.0):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
         self.env = env = load_environment(env)
         self.returns_scale = returns_scale
@@ -34,7 +47,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         for i, episode in enumerate(itr):
             fields.add_path(episode)
         fields.finalize()
-
+        print("measuring time from now")
+        start_time = time.time()
         self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
         self.indices = self.make_indices(fields.path_lengths, horizon)
 
@@ -43,17 +57,17 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.fields = fields
         self.n_episodes = fields.n_episodes
         self.path_lengths = fields.path_lengths
-        print("measuring time from now")
-        start_time = time.time()
         self.normalize()
         end_time = time.time()
         print("elapsed time: ", end_time - start_time, "sec")
 
         print(fields)
+
+        self.action_scale = action_scale
         # shapes = {key: val.shape for key, val in self.fields.items()}
         # print(f'[ datasets/mujoco ] Dataset fields: {shapes}')
 
-    def normalize(self, keys=['observations', 'actions']):
+    def normalize(self, keys=['observations']): #, 'actions']):
         '''
             normalize fields that will be predicted by the diffusion model
         '''
@@ -106,7 +120,10 @@ class SequenceDataset(torch.utils.data.Dataset):
         unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2])
         observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
 
-        actions = self.fields.normed_actions[path_ind, start:end]
+        # actions = self.fields.normed_actions[path_ind, start:end]
+        # actions = actions * self.action_scale
+
+        actions = self.fields.actions[path_ind, start:end] / self.action_scale
 
         conditions = self.get_conditions(observations)
         trajectories = np.concatenate([actions, observations], axis=-1)

@@ -18,6 +18,8 @@ from .arrays import to_np
 from .video import save_video, save_videos
 from ml_logger import logger
 
+from datetime import datetime
+
 from diffuser.datasets.d4rl import load_environment
 
 #-----------------------------------------------------------------------------#
@@ -356,7 +358,7 @@ class RaisimRenderer:
         #        state[3], state[4], state[5] ]
         self.world.setWorldTime(self.worldTime)
         self.anymal.setGeneralizedCoordinate(gc)
-        time.sleep(0.2)
+        time.sleep(0.05)
 
         data = np.zeros((*dim, 3), np.uint8)
         self.worldTime+=self.dt
@@ -386,6 +388,7 @@ class RaisimRenderer:
 
     def composite(self, savepath, paths, dim=(1024, 256), **kwargs):
 
+        self.worldTime = 0
         render_kwargs = {
             'trackbodyid': 2,
             'distance': 10,
@@ -448,6 +451,41 @@ class RaisimRenderer:
         server.killServer()
 
         return images
+
+
+    def composite3(self, savepath, paths, title, dim=(1024, 256), **kwargs):
+
+        self.worldTime = 0
+        render_kwargs = {
+            'trackbodyid': 2,
+            'distance': 10,
+            'lookat': [5, 2, 0.5],
+            'elevation': 0
+        }
+
+        server = raisim.RaisimServer(self.world)
+        server.launchServer(8088)
+        current_date = datetime.now().strftime("%m%d")
+        directory_path = os.path.expanduser(f'~/workspace/raisim/raisimLib/raisimUnity/linux/Screenshot/{current_date}/{savepath}')
+        os.makedirs(directory_path, exist_ok=True)
+        video_path = current_date + "/" + savepath + "/" + title + ".mp4"
+        server.startRecordingVideo(video_path)
+        server.focusOn(self.anymal)
+        time.sleep(1)
+
+        images = []
+        for path in paths:
+            ## [ H x obs_dim ]
+            path = atmost_2d(path)
+            img = self.renders(to_np(path), dim=dim, partial=False, qvel=True, render_kwargs=render_kwargs, **kwargs)
+            images.append(img)
+        images = np.concatenate(images, axis=0)
+
+        server.stopRecordingVideo()
+        server.killServer()
+
+        return images
+
 
     def composite1(self, savepath, paths, dim=(1024, 256), **kwargs):
 

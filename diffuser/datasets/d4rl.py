@@ -66,6 +66,22 @@ def sequence_dataset(env, preprocess_fn):
         loaded_data = pkl.load(f)
         dataset = loaded_data
 
+    file_paths = ['~/Desktop/dataset/0621_gait_joy_command/trot/data.pkl',
+                  '~/Desktop/dataset/0621_gait_joy_command/bound/data.pkl',
+                  '~/Desktop/dataset/0621_gait_joy_command/pace/data.pkl']
+    dataset = {}
+    keys = ['actions', 'observations', 'rewards', 'terminals', 'timeouts']
+
+    for file_path in file_paths:
+        path = os.path.expanduser(file_path)
+        with open(path, 'rb') as f:
+            loaded_data = pkl.load(f)
+        for key in keys:
+            if key in dataset:
+                dataset[key] = np.concatenate([dataset[key], loaded_data[key]], axis=0)
+            else:
+                dataset[key] = loaded_data[key]
+
     dataset = preprocess_fn(dataset)
     generate_pos = True
     include_clock = True

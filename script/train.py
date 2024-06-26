@@ -40,6 +40,7 @@ def main(**deps):
         returns_scale=Config.returns_scale,
         discount=Config.discount,
         termination_penalty=Config.termination_penalty,
+        action_scale = Config.action_scale
     )
 
     render_config = utils.Config(
@@ -136,6 +137,7 @@ def main(**deps):
         sample_freq=Config.sample_freq,
         save_freq=Config.save_freq,
         log_freq=Config.log_freq,
+        record_freq=Config.record_freq,
         label_freq=int(Config.n_train_steps // Config.n_saves),
         save_parallel=Config.save_parallel,
         bucket=Config.bucket,

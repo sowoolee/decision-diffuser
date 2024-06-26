@@ -118,7 +118,7 @@ class Trainer(object):
         record_freq=50000,
         label_freq=100000,
         save_parallel=False,
-        n_reference=8,
+        n_reference=4,
         bucket=None,
         train_device='cuda',
         save_checkpoints=False,
@@ -152,7 +152,7 @@ class Trainer(object):
         ))
         self.renderer = renderer
         # self.optimizer = torch.optim.Adam(diffusion_model.parameters(), lr=train_lr)
-        self.optimizer = torch.optim.AdamW(diffusion_model.parameters(), lr=train_lr)
+        self.optimizer = torch.optim.AdamW(diffusion_model.parameters(), lr=train_lr, weight_decay=1e-3)
         # self.optimizer = AdamP(diffusion_model.parameters(), lr=train_lr, betas=(0.9, 0.999), weight_decay=1e-2)
 
         self.bucket = bucket
@@ -164,6 +164,7 @@ class Trainer(object):
         self.device = train_device
         # self.env = load_play_env(headless=False)
         self.env = None
+        self.action_scale = dataset.action_scale
 
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
@@ -203,7 +204,7 @@ class Trainer(object):
                 #     writer.add_scalar("loss/diff loss", diff_loss, step)
                 #     writer.add_scalar("loss/inv loss", inv_loss, step)
 
-                if step %  2000 == 0:
+                if step % 2000 == 0:
                     diff_losses, inv_loss, x_targ, x_pred, a_targ, a_pred = self.model.loss2(*batch)
                     diff_loss = diff_losses.mean()
 
@@ -214,8 +215,10 @@ class Trainer(object):
                     org_loss = (targ_unnormed - pred_unnormed) ** 2
                     org_loss = np.mean(org_loss, axis=(0,1))
 
-                    a_unnormed = self.dataset.normalizer.unnormalize(to_np(a_targ), 'actions')
-                    a_pred_unnormed = self.dataset.normalizer.unnormalize(to_np(a_pred), 'actions')
+                    # a_unnormed = self.dataset.normalizer.unnormalize(to_np(a_targ), 'actions')
+                    # a_pred_unnormed = self.dataset.normalizer.unnormalize(to_np(a_pred), 'actions')
+                    a_unnormed = to_np(a_targ) * self.action_scale
+                    a_pred_unnormed = to_np(a_pred) * self.action_scale
                     unnormed_inv_loss = (a_pred_unnormed - a_unnormed) ** 2
                     unnormed_inv_loss = np.mean(unnormed_inv_loss, axis=(0,1))
 
@@ -431,6 +434,8 @@ class Trainer(object):
         ## [ batch_size x horizon x observation_dim ]
         normed_observations = trajectories[:, :, self.dataset.action_dim:]
         observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
+        scaled_xy = normed_observations[:, :, 0:2]
+        observations = np.concatenate([scaled_xy, observations[:, :, 2:]], axis=-1)
 
         # from diffusion.datasets.preprocessing import blocks_cumsum_quat
         # # observations = conditions + blocks_cumsum_quat(deltas)
@@ -576,7 +581,9 @@ class Trainer(object):
                 'b d -> (repeat b) d', repeat=n_samples,
             )
 
-            commands = [[1,1.0,0,0], [1,-1.0,0,0], [1,0,0.5,0], [1,0,0,1]]
+            commands = [[1, 0.8, 0, 0], [1, -0.8, 0, 0], [1, 0, 0.4, 0], [1, 0, 0, 0.8]]
+            # commands = [[2, 0.8, 0, 0], [2, -0.8, 0, 0], [2, 0, 0.4, 0], [2, 0, 0, 0.8]]
+            # commands = [[3, 0.8, 0, 0], [3, -0.8, 0, 0], [3, 0, 0.4, 0], [3, 0, 0, 0.8]]
 
             ## [ n_samples x horizon x (action_dim + observation_dim) ]
             if self.ema_model.returns_condition:
@@ -616,6 +623,6 @@ class Trainer(object):
             scaled_xy = normed_observations[:, :, 0:2]
             observations = np.concatenate([scaled_xy, observations[:, :, 2:]], axis=-1)
 
-            savepath = os.path.join('images', f'sample-{i}.png')
+            savepath = 'training'
             name = str(self.step)
-            self.renderer.composite2(savepath, observations, name)
+            self.renderer.composite3(savepath, observations, name)
