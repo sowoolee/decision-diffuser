@@ -305,8 +305,8 @@ class GaussianInvDynDiffusion(nn.Module):
             self.inv_model = ARInvModel(hidden_dim=hidden_dim, observation_dim=observation_dim, action_dim=action_dim)
         else:
             self.inv_model = nn.Sequential(
-                # nn.Linear(2 * self.observation_dim, hidden_dim),
-                nn.Linear(2 * (self.observation_dim - 5), hidden_dim),
+                nn.Linear(2 * self.observation_dim, hidden_dim),
+                # nn.Linear(2 * (self.observation_dim - 5), hidden_dim),
                 nn.ReLU(),
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
@@ -454,7 +454,7 @@ class GaussianInvDynDiffusion(nn.Module):
                 x0_uncond = self.model(x, cond, t, ret, force_dropout=True)
                 eps_cond = self.predict_noise_from_start(x, t, x0_cond)
                 eps_uncond = self.predict_noise_from_start(x, t, x0_uncond)
-                epsilon += self.condition_guidance_w * (eps_cond - eps_uncond)
+                epsilon += (self.condition_guidance_w) * (eps_cond - eps_uncond)
         else:
             if self.returns_condition:
                 # epsilon could be epsilon or x0 itself
@@ -665,7 +665,7 @@ class GaussianInvDynDiffusion(nn.Module):
             x_t = torch.cat([x[:, :-1, self.action_dim:self.action_dim+13], x[:, :-1, -24:]], dim=-1)
             x_t_1 = torch.cat([x[:, 1:, self.action_dim:self.action_dim+13], x[:, 1:, -24:]], dim=-1)
             x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
-            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim-5))
+            x_comb_t = x_comb_t.reshape(-1, 2 * self.observation_dim)
 
             a_t = a_t.reshape(-1, self.action_dim)
             if self.ar_inv:
@@ -703,7 +703,7 @@ class GaussianInvDynDiffusion(nn.Module):
             x_t = torch.cat([x[:, :-1, self.action_dim:self.action_dim+13], x[:, :-1, -24:]], dim=-1)
             x_t_1 = torch.cat([x[:, 1:, self.action_dim:self.action_dim+13], x[:, 1:, -24:]], dim=-1)
             x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
-            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim-5))
+            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim))
 
             a_t = a_t.reshape(-1, self.action_dim)
             if self.ar_inv:
@@ -748,7 +748,7 @@ class GaussianInvDynDiffusion(nn.Module):
             x_t = torch.cat([x[:, :-1, self.action_dim:self.action_dim+13], x[:, :-1, -24:]], dim=-1)
             x_t_1 = torch.cat([x[:, 1:, self.action_dim:self.action_dim+13], x[:, 1:, -24:]], dim=-1)
             x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
-            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim-5))
+            x_comb_t = x_comb_t.reshape(-1, 2 * (self.observation_dim))
 
             a_t = a_t.reshape(-1, self.action_dim)
             if self.ar_inv:

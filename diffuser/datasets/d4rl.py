@@ -68,7 +68,8 @@ def sequence_dataset(env, preprocess_fn):
 
     file_paths = ['~/Desktop/dataset/0621_gait_joy_command/trot/data.pkl',
                   '~/Desktop/dataset/0621_gait_joy_command/bound/data.pkl',
-                  '~/Desktop/dataset/0621_gait_joy_command/pace/data.pkl']
+                  '~/Desktop/dataset/0621_gait_joy_command/pace/data.pkl',
+                  '~/Desktop/dataset/0621_gait_joy_command/pronk/data.pkl']
     dataset = {}
     keys = ['actions', 'observations', 'rewards', 'terminals', 'timeouts']
 
@@ -84,7 +85,9 @@ def sequence_dataset(env, preprocess_fn):
 
     dataset = preprocess_fn(dataset)
     generate_pos = True
-    include_clock = True
+    include_clock = False
+
+    seperate_gait = True
 
     if not include_clock:
         dataset['observations'] = np.concatenate([dataset['observations'][:,0:13], dataset['observations'][:,18:]], axis=-1)
@@ -92,6 +95,9 @@ def sequence_dataset(env, preprocess_fn):
 
     if not generate_pos:
         dataset['observations'] = dataset['observations'][:,2:]
+
+    if not seperate_gait:
+        dataset['rewards'][:,0] = -1
 
     N = dataset['rewards'].shape[0]
     data_ = collections.defaultdict(list)

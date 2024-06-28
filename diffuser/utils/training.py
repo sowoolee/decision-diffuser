@@ -231,8 +231,8 @@ class Trainer(object):
                     writer.add_scalar("error/base_ori[quat]", np.sqrt(np.sum(org_loss[3:7])), step)
                     writer.add_scalar("error/base_lin_vel[m/s]", np.sqrt(np.sum(org_loss[7:10])), step)
                     writer.add_scalar("error/base_ang_vel[rad/s]", np.sqrt(np.sum(org_loss[10:13])), step)
-                    writer.add_scalar("error/joint_pos[rad]", np.sqrt(np.sum(org_loss[18:30])), step)
-                    writer.add_scalar("error/joint_vel[rad/s]", np.sqrt(np.sum(org_loss[30:42])), step)
+                    writer.add_scalar("error/joint_pos[rad]", np.sqrt(np.sum(org_loss[-24:-12])), step)
+                    writer.add_scalar("error/joint_vel[rad/s]", np.sqrt(np.sum(org_loss[-12:])), step)
 
 
             self.optimizer.step()
