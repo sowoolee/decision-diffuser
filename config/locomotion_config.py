@@ -4,7 +4,7 @@ from params_proto import ParamsProto, PrefixProto, Proto
 
 class Config(ParamsProto):
     # misc
-    seed = 201
+    seed = 100
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     bucket = '/home/kdyun/workspace/decidiff/code/weights/'
     dataset = 'hopper-medium-expert-v2'

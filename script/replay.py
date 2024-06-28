@@ -837,7 +837,7 @@ def demo(env, trainer, gait_num=1):
              "bounding": [0, 0.5, 0],
              "pacing": [0, 0, 0.5]}
 
-    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
+    cmd = {'fwd': [2.0, 0, 0], 'bwd': [-1.0, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,1.0]}
 
     # y conditioning
     gait_idx = gait_num
@@ -991,7 +991,7 @@ def demo2(env, trainer):
              "bounding": [0, 0.5, 0],
              "pacing": [0, 0, 0.5]}
 
-    cmd = {'fwd': [0.7, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
+    cmd = {'fwd': [2.0, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
 
     # y conditioning
     gait_idx = 1
@@ -1065,26 +1065,26 @@ def demo2(env, trainer):
 
     recorded_obs = [deepcopy(obs_shot[:, None])]
 
-    while t < 700:
+    while t < 400:
         if t < 100:
-            returns = to_device(torch.Tensor([[0, *cmd['fwd']] for i in range(num_eval)]), device)
-            random_gaits = [list(gaits.values())[0]]
+            returns = to_device(torch.Tensor([[2, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
             gait = torch.tensor(random_gaits)
         elif t < 200:
-            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
-            random_gaits = [list(gaits.values())[1]]
+            returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[2]]
             gait = torch.tensor(random_gaits)
         elif t < 300:
             returns = to_device(torch.Tensor([[0, *cmd['fwd']] for i in range(num_eval)]), device)
-            random_gaits = [list(gaits.values())[0]]
+            random_gaits = [list(gaits.values())[3]]
             gait = torch.tensor(random_gaits)
         elif t < 400:
-            returns = to_device(torch.Tensor([[2, *cmd['fwd']] for i in range(num_eval)]), device)
-            random_gaits = [list(gaits.values())[2]]
+            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[0]]
             gait = torch.tensor(random_gaits)
         elif t < 500:
-            returns = to_device(torch.Tensor([[0, *cmd['fwd']] for i in range(num_eval)]), device)
-            random_gaits = [list(gaits.values())[0]]
+            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
             gait = torch.tensor(random_gaits)
         elif t < 600:
             returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
@@ -1347,12 +1347,14 @@ def test_serial(headless=False):
     env = load_test_env(label, headless=headless)
     num_eval = env.num_envs
 
+    demo2(env, trainer)
+
     # demo(env, trainer, 1)
     # demo(env, trainer, 2)
     # demo(env, trainer, 3)
     # demo(env, trainer, 0)
 
-    demo2(env, trainer)
+    # demo2(env, trainer)
 
     # test_cmd(env, trainer, [0, 0, 0], 1)
     # test_cmd(env, trainer, [0, 0, 0], 2)

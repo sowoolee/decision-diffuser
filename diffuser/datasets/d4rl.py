@@ -66,10 +66,10 @@ def sequence_dataset(env, preprocess_fn):
         loaded_data = pkl.load(f)
         dataset = loaded_data
 
-    file_paths = ['~/Desktop/dataset/0621_gait_joy_command/trot/data.pkl',
-                  '~/Desktop/dataset/0621_gait_joy_command/bound/data.pkl',
-                  '~/Desktop/dataset/0621_gait_joy_command/pace/data.pkl',
-                  '~/Desktop/dataset/0621_gait_joy_command/pronk/data.pkl']
+    file_paths = ['~/Desktop/dataset/0627_gait_joy_faster/trot/data.pkl',
+                  '~/Desktop/dataset/0627_gait_joy_faster/bound/data.pkl',
+                  '~/Desktop/dataset/0627_gait_joy_faster/pace/data.pkl',
+                  '~/Desktop/dataset/0627_gait_joy_faster/pronk/data.pkl']
     dataset = {}
     keys = ['actions', 'observations', 'rewards', 'terminals', 'timeouts']
 
