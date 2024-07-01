@@ -646,7 +646,7 @@ def test(headless=False, command='fwd'):
     #     ''' compare s_t+1 '''
 
 
-def test_cmd(env, trainer, command='fwd', gait_num=1):
+def test_cmd(env, trainer, command='fwd', gait_num=1, subtitle=''):
     dataset = trainer.dataset
     device = trainer.device
     renderer = trainer.renderer
@@ -748,7 +748,7 @@ def test_cmd(env, trainer, command='fwd', gait_num=1):
 
     recorded_obs = [deepcopy(obs_shot[:, None])]
 
-    while t < 250:
+    while t < 100:
         # action sampling
         if not replay:
             obs = dataset.normalizer.normalize(obs, 'observations')
@@ -814,11 +814,11 @@ def test_cmd(env, trainer, command='fwd', gait_num=1):
     print('evaluation ended')
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
-    title = str(list(gaits.keys())[gait_num]) + '_' + command
+    title = str(list(gaits.keys())[gait_num]) + '_' + command + subtitle
     renderer.composite3('testing', recorded_obs, title)
 
 
-def demo(env, trainer, gait_num=1):
+def demo(env, trainer, gait_num=1, subtitle=''):
     dataset = trainer.dataset
     device = trainer.device
     renderer = trainer.renderer
@@ -835,7 +835,8 @@ def demo(env, trainer, gait_num=1):
     gaits = {"pronking": [0, 0, 0],
              "trotting": [0.5, 0, 0],
              "bounding": [0, 0.5, 0],
-             "pacing": [0, 0, 0.5]}
+             "pacing": [0, 0, 0.5],
+             "mixing": [0.5, 0.5, 0.5]}
 
     cmd = {'fwd': [2.0, 0, 0], 'bwd': [-1.0, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,1.0]}
 
@@ -875,6 +876,7 @@ def demo(env, trainer, gait_num=1):
 
     # testing start
     t = 0
+    pbar = tqdm(250)
 
     env.reset()
     obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
@@ -902,7 +904,9 @@ def demo(env, trainer, gait_num=1):
                                 to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
     obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
 
-    recorded_obs = [deepcopy(obs_shot[:, None])]
+    # recorded_obs = [deepcopy(obs_shot[:, None])]
+    recorded_obs = []
+    recorded_rets = []
 
     while t < 700:
         if t < 100:
@@ -963,16 +967,19 @@ def demo(env, trainer, gait_num=1):
         obs = np.concatenate(obs_list, axis=0)
         obs_shot = np.concatenate([to_np(env.root_states[:, 0:2]), obs[:, 2:]], axis=-1)
         recorded_obs.append(deepcopy(obs_shot[:, None]))
+        recorded_rets.append(deepcopy(to_np(returns)[:, None]))
 
         t += 1
+        pbar.update(1)
 
     print('evaluation ended')
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
-    title = 'demo_' + str(list(gaits.keys())[gait_num])
-    renderer.composite3('testing', recorded_obs, title)
+    recorded_rets = np.concatenate(recorded_rets, axis=1)
+    title = 'demo_' + str(list(gaits.keys())[gait_num]) + subtitle
+    renderer.composite4('testing', recorded_obs, recorded_rets, title)
 
-def demo2(env, trainer):
+def demo2(env, trainer, subtitle=''):
     dataset = trainer.dataset
     device = trainer.device
     renderer = trainer.renderer
@@ -989,7 +996,8 @@ def demo2(env, trainer):
     gaits = {"pronking": [0, 0, 0],
              "trotting": [0.5, 0, 0],
              "bounding": [0, 0.5, 0],
-             "pacing": [0, 0, 0.5]}
+             "pacing": [0, 0, 0.5],
+             "mixing": [0.5, 0.5, 0.5]}
 
     cmd = {'fwd': [2.0, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
 
@@ -1172,10 +1180,10 @@ def demo2(env, trainer):
     print('evaluation ended')
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
-    title = 'demo_transition'
+    title = 'demo_transition' + subtitle
     renderer.composite3('testing', recorded_obs, title)
 
-def demo3(env, trainer, gait_nums=[1,2]):
+def demo3(env, trainer, gait_nums=[1,2], subtitle=''):
     dataset = trainer.dataset
     device = trainer.device
     renderer = trainer.renderer
@@ -1321,8 +1329,198 @@ def demo3(env, trainer, gait_nums=[1,2]):
     print('evaluation ended')
 
     recorded_obs = np.concatenate(recorded_obs, axis=1)
-    title = 'blending_' + str(list(gaits.keys())[gait_nums[0]]) + '_' + str(list(gaits.keys())[gait_nums[1]])
+    title = 'blending_' + str(list(gaits.keys())[gait_nums[0]]) + '_' + str(list(gaits.keys())[gait_nums[1]]) + subtitle
     renderer.composite3('testing', recorded_obs, title)
+
+
+def demo4(env, trainer, subtitle=''):
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    observation_dim = dataset.observation_dim
+    action_dim = dataset.action_dim
+
+    action_scale = dataset.action_scale
+
+    # load environment
+    num_eval = env.num_envs
+
+    num_eval_steps = 250
+    gaits = {"pronking": [0, 0, 0],
+             "trotting": [0.5, 0, 0],
+             "bounding": [0, 0.5, 0],
+             "pacing": [0, 0, 0.5],
+             "mixing": [0.5, 0.5, 0.5]}
+
+    cmd = {'fwd': [2.0, 0, 0], 'bwd': [-0.7, 0, 0], 'left': [0, 0.4, 0], 'right': [0, -0.4, 0], 'rot': [0,0,0.7]}
+
+    # y conditioning
+    gait_idx = -1
+    gait_indices = [gait_idx for _ in range(num_eval)]  # just for one gait
+    random_gaits = [list(gaits.values())[idx] for idx in gait_indices]
+    gait = torch.tensor(random_gaits)
+    step_frequency = 3.0
+
+    # returns = to_device(torch.Tensor([[gait_idx,0.5,0.0,0.0] for i in range(num_eval)]), device)
+    returns = to_device(torch.Tensor([[gait_idx, *cmd['fwd']] for i in range(num_eval)]), device)
+
+    # evaluation setting
+    replay = False
+    random_start = True
+    set_batch_state = False
+    exclude_clock = True
+
+
+    # bring train dataset
+    dataloader = cycle(torch.utils.data.DataLoader(
+            dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
+        ))
+    batch = next(dataloader)
+    batch = batch_to_device(batch, device=device)
+
+    x = batch[0]
+    cond = batch[1]
+    # if set_batch_state: returns = batch[2]
+
+    state = to_np(x[:, :, action_dim:])
+    state = dataset.normalizer.unnormalize(state, 'observations')
+    true_action = to_np(x[:,:, :action_dim])
+
+    obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
+
+    if exclude_clock:
+        s0 = np.concatenate([state[:,0,:13], state[:,0,-24:]], axis=-1)
+        s1 = np.concatenate([state[:,1,:13], state[:,1,-24:]], axis=-1)
+        obs_comb = np.concatenate([s0,s1], axis=-1)
+    a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
+    dataset.normalizer.unnormalize(to_np(a), 'actions') - dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
+
+    # testing start
+    t = 0
+
+    env.reset()
+    obs = dataset.normalizer.unnormalize(to_np(cond[0]), 'observations')
+
+    # set batch state
+    env_ids = torch.tensor([0], dtype=torch.int32, device='cuda:0')
+    dof_pos = to_torch([[0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000]], device='cuda:0')
+    base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), to_np([[0.3]]), to_np(env.root_states[:,3:7]), to_np([[0,0,0,0,0,0]])], axis=-1), device='cuda:0')
+    env.set_idx_pose(env_ids, dof_pos, base_state)
+
+    env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+    obs = np.concatenate([
+                                to_np([[0.,0.]]),
+                                to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                # to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+    obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+
+    # recorded_obs = [deepcopy(obs_shot[:, None])]
+    recorded_obs = []
+    recorded_rets = []
+
+
+    while t < 200:
+        if t < 40:
+            returns = to_device(torch.Tensor([[-1, 0.5, 0, 0] for i in range(num_eval)]), device)
+        elif t < 80:
+            returns = to_device(torch.Tensor([[-1, 1.0, 0, 0] for i in range(num_eval)]), device)
+        elif t < 120:
+            returns = to_device(torch.Tensor([[-1, 1.5, 0, 0] for i in range(num_eval)]), device)
+        elif t < 160:
+            returns = to_device(torch.Tensor([[-1, 2.0, 0, 0] for i in range(num_eval)]), device)
+        elif t < 200:
+            returns = to_device(torch.Tensor([[-1, 2.5, 0, 0] for i in range(num_eval)]), device)
+        elif t < 600:
+            returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
+        elif t < 700:
+            returns = to_device(torch.Tensor([[0, *cmd['fwd']] for i in range(num_eval)]), device)
+        elif t < 800:
+            returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
+            gait = torch.tensor(random_gaits)
+        elif t < 900:
+            returns = to_device(torch.Tensor([[2, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[2]]
+            gait = torch.tensor(random_gaits)
+        elif t < 1000:
+            returns = to_device(torch.Tensor([[0, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[0]]
+            gait = torch.tensor(random_gaits)
+        elif t < 1100:
+            returns = to_device(torch.Tensor([[3, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[3]]
+            gait = torch.tensor(random_gaits)
+        elif t < 1200:
+            returns = to_device(torch.Tensor([[0, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[0]]
+            gait = torch.tensor(random_gaits)
+        else:
+            returns = to_device(torch.Tensor([[1, *cmd['fwd']] for i in range(num_eval)]), device)
+            random_gaits = [list(gaits.values())[1]]
+            gait = torch.tensor(random_gaits)
+
+        # action sampling
+        if not replay:
+            obs = dataset.normalizer.normalize(obs, 'observations')
+            if random_start: obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+            conditions = {0: to_torch(obs, device=device)}
+
+            # state trajectory sampling
+            samples = trainer.ema_model.conditional_sample(conditions, returns)
+
+            # action sampling
+            obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+            obs_comb = obs_comb.reshape(-1, 2 * observation_dim)
+
+            if exclude_clock:
+                s0 = torch.cat([samples[:, 0, :13], samples[:, 0, -24:]], dim=-1)
+                s1 = torch.cat([samples[:, 1, :13], samples[:, 1, -24:]], dim=-1)
+                obs_comb = torch.cat([s0,s1], dim=-1)
+
+            action = trainer.ema_model.inv_model(obs_comb)
+
+            action = to_np(action)
+            # action = dataset.normalizer.unnormalize(action, 'actions')
+            action = action * action_scale
+            action = to_torch(action)
+
+            #trajectory recording
+            samples = to_np(samples)
+
+        # environment step
+        obs_list = []
+        with torch.no_grad():
+            # env.commands[:, 4] = step_frequency
+            # env.commands[:, 5:8] = gait
+            # if t==0: env.gait_indices = phase_0
+
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        this_obs = np.concatenate([ to_np([[0.,0.]]), to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+                                        to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+                                        # to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                        to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:,:12])], axis=-1)
+
+        obs_list.append(this_obs)
+        obs = np.concatenate(obs_list, axis=0)
+        obs_shot = np.concatenate([to_np(env.root_states[:, 0:2]), obs[:, 2:]], axis=-1)
+        recorded_obs.append(deepcopy(obs_shot[:, None]))
+        recorded_rets.append(deepcopy(to_np(returns)[:, None]))
+
+        t += 1
+
+    print('evaluation ended')
+
+    recorded_obs = np.concatenate(recorded_obs, axis=1)
+    recorded_rets = np.concatenate(recorded_rets, axis=1)
+    title = 'demo_acceleration' + subtitle
+    renderer.composite4('testing', recorded_obs, recorded_rets, title)
+
 
 def test_serial(headless=False):
     from ml_logger import logger
@@ -1356,6 +1554,9 @@ def test_serial(headless=False):
 
     # demo2(env, trainer)
 
+    # test_cmd(env, trainer, [0, 0, 0], gait_num=-1, subtitle='1')
+    # test_cmd(env, trainer, [0, 0, 0], gait_num=-1, subtitle='2')
+    # test_cmd(env, trainer, [0, 0, 0], gait_num=-1, subtitle='3')
     # test_cmd(env, trainer, [0, 0, 0], 1)
     # test_cmd(env, trainer, [0, 0, 0], 2)
     # test_cmd(env, trainer, [0, 0, 0], 3)

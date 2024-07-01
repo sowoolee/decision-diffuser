@@ -20,6 +20,8 @@ from ml_logger import logger
 
 from datetime import datetime
 
+from scipy.spatial.transform import Rotation as R
+
 from diffuser.datasets.d4rl import load_environment
 
 #-----------------------------------------------------------------------------#
@@ -53,6 +55,44 @@ def atmost_2d(x):
     while x.ndim > 2:
         x = x.squeeze(0)
     return x
+
+def quaternion_to_rotation_matrix(quat):
+    # 쿼터니언을 회전 행렬로 변환
+    q = np.array(quat)
+    qw, qx, qy, qz = q[0], q[1], q[2], q[3]
+
+    rotmat = np.array([
+        [1 - 2 * qy ** 2 - 2 * qz ** 2, 2 * qx * qy - 2 * qz * qw, 2 * qx * qz + 2 * qy * qw],
+        [2 * qx * qy + 2 * qz * qw, 1 - 2 * qx ** 2 - 2 * qz ** 2, 2 * qy * qz - 2 * qx * qw],
+        [2 * qx * qz - 2 * qy * qw, 2 * qy * qz + 2 * qx * qw, 1 - 2 * qx ** 2 - 2 * qy ** 2]
+    ])
+    return rotmat
+
+def quaternion_from_direction_vector(vec):
+    # 벡터의 크기 계산
+    norm = np.linalg.norm(vec)
+
+    # 크기가 너무 작으면 단위 쿼터니언 반환
+    if norm < 1e-6:
+        return np.array([1, 0, 0, 0])
+
+    # 방향 벡터 정규화
+    direction = vec / norm
+
+    # Euler 각도 계산
+    theta_z = np.arctan2(direction[1], direction[0]) + np.pi / 2  # x축을 회전축에 맞추기
+    theta_x = np.arccos(direction[2])  # z축 기울이기
+
+    # Euler 각도를 회전 행렬로 변환
+    rot = R.from_euler('zx', [theta_z, theta_x]).as_matrix()
+
+    # 회전 행렬을 쿼터니언으로 변환
+    quat = R.from_matrix(rot).as_quat()
+
+    # scipy의 쿼터니언은 (x, y, z, w) 순서이므로 (w, x, y, z) 순서로 변환
+    quat = np.array([quat[3], quat[0], quat[1], quat[2]])
+
+    return quat
 
 #-----------------------------------------------------------------------------#
 #---------------------------------- renderers --------------------------------#
@@ -361,7 +401,62 @@ class RaisimRenderer:
         time.sleep(0.05)
 
         data = np.zeros((*dim, 3), np.uint8)
-        self.worldTime+=self.dt
+        self.worldTime += self.dt
+        return data
+
+
+    def render_cmd(self, observation, reward, visSphere, visArrow, dim=256, partial=False, qvel=True, render_kwargs=None, conditions=None):
+
+        if type(dim) == int:
+            dim = (dim, dim)
+
+        if partial:
+            state = self.pad_observation(observation)
+        else:
+            state = observation
+
+        quat = [state[6], state[3], state[4], state[5]]
+        siny_cosp = 2 * (quat[0] * quat[3] + quat[1] * quat[2])
+        cosy_cosp = 1 - 2 * (quat[2] * quat[2] + quat[3] * quat[3])
+        yaw_angle = math.atan2(siny_cosp, cosy_cosp)
+
+        dof_pos = state[-24:-12]
+
+        # math.cos(yaw_angle)*state[0], math.sin(yaw_angle)*state[0], 0.5,
+        # gc = [  math.cos(yaw_angle)*1.5, math.sin(yaw_angle)*1.5, 0.5,
+        gc = [  *state[0:3],
+                *quat,
+                *dof_pos  ]
+
+        q_inv = np.array([state[6], -state[3], -state[4], -state[5]])
+        q_inv = q_inv / np.linalg.norm(q_inv)
+        Rot_wb = quaternion_to_rotation_matrix(q_inv)
+        cmd = np.array([reward[1], reward[2], 0])
+        dir_vec = np.dot(Rot_wb, cmd)
+        dir_quat = quaternion_from_direction_vector(dir_vec)
+
+        visSphere.setPosition(np.array([state[0], state[1], state[2] + 0.3]))
+        visArrow.setPosition(np.array([state[0], state[1], state[2] + 0.2]))
+        visArrow.setOrientation(dir_quat)
+        visArrow.setCylinderSize(0.2, np.linalg.norm(cmd)/5)
+
+        if reward[0] == -1:
+            visSphere.setColor(0, 0, 0, 1)
+        elif reward[0] == 0:
+            visSphere.setColor(1, 0, 0, 1)
+        elif reward[0] == 1:
+            visSphere.setColor(1, 1, 0, 1)
+        elif reward[0] == 2:
+            visSphere.setColor(0, 1, 0, 1)
+        elif reward[0] == 3:
+            visSphere.setColor(0, 0, 1, 1)
+
+        self.world.setWorldTime(self.worldTime)
+        self.anymal.setGeneralizedCoordinate(gc)
+        time.sleep(0.05)
+
+        data = np.zeros((*dim, 3), np.uint8)
+        self.worldTime += self.dt
         return data
 
     def _renders(self, observations, **kwargs):
@@ -371,12 +466,35 @@ class RaisimRenderer:
             images.append(img)
         return np.stack(images, axis=0)
 
+    def _renders_cmd(self, observations, returns, visSphere, visArrow, **kwargs):
+        images = []
+        for i, observation in enumerate(observations):
+            reward = returns[i]
+            img = self.render_cmd(observation, reward, visSphere, visArrow, **kwargs)
+            images.append(img)
+        return np.stack(images, axis=0)
+
     def renders(self, samples, partial=False, **kwargs):
         if partial:
             samples = self.pad_observations(samples)
             partial = False
 
         sample_images = self._renders(samples, partial=partial, **kwargs)
+
+        composite = np.ones_like(sample_images[0]) * 255
+
+        for img in sample_images:
+            mask = get_image_mask(img)
+            composite[mask] = img[mask]
+
+        return composite
+
+    def renders_cmd(self, samples, returns, visSphere, visArrow, partial=False, **kwargs):
+        if partial:
+            samples = self.pad_observations(samples)
+            partial = False
+
+        sample_images = self._renders_cmd(samples, returns, visSphere, visArrow, partial=partial, **kwargs)
 
         composite = np.ones_like(sample_images[0]) * 255
 
@@ -478,6 +596,43 @@ class RaisimRenderer:
             ## [ H x obs_dim ]
             path = atmost_2d(path)
             img = self.renders(to_np(path), dim=dim, partial=False, qvel=True, render_kwargs=render_kwargs, **kwargs)
+            images.append(img)
+        images = np.concatenate(images, axis=0)
+
+        server.stopRecordingVideo()
+        server.killServer()
+
+        return images
+
+    def composite4(self, savepath, paths, rets, title, dim=(1024, 256), **kwargs):
+
+        self.worldTime = 0
+        render_kwargs = {
+            'trackbodyid': 2,
+            'distance': 10,
+            'lookat': [5, 2, 0.5],
+            'elevation': 0
+        }
+
+        server = raisim.RaisimServer(self.world)
+        server.launchServer(8088)
+        visSphere = server.addVisualSphere("v_sphere", 0.04, 1, 1, 1, 1)
+        visArrow = server.addVisualArrow("v_arrow", 0.02, 0.5, 0,0,0,-1, False, False)
+
+        current_date = datetime.now().strftime("%m%d")
+        directory_path = os.path.expanduser(f'~/workspace/raisim/raisimLib/raisimUnity/linux/Screenshot/{current_date}/{savepath}')
+        os.makedirs(directory_path, exist_ok=True)
+        video_path = current_date + "/" + savepath + "/" + title + ".mp4"
+        server.focusOn(self.anymal)
+        time.sleep(1)
+        server.startRecordingVideo(video_path)
+
+        images = []
+        for i, path in enumerate(paths):
+            ## [ H x obs_dim ]
+            path = atmost_2d(path)
+            ret = atmost_2d(rets[i])
+            img = self.renders_cmd(to_np(path), to_np(ret), visSphere, visArrow, dim=dim, partial=False, qvel=True, render_kwargs=render_kwargs, **kwargs)
             images.append(img)
         images = np.concatenate(images, axis=0)
 
