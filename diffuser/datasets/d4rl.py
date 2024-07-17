@@ -73,31 +73,108 @@ def sequence_dataset(env, preprocess_fn):
     dataset = {}
     keys = ['actions', 'observations', 'rewards', 'terminals', 'timeouts']
 
-    for file_path in file_paths:
-        path = os.path.expanduser(file_path)
-        with open(path, 'rb') as f:
-            loaded_data = pkl.load(f)
-        for key in keys:
-            if key in dataset:
-                dataset[key] = np.concatenate([dataset[key], loaded_data[key]], axis=0)
-            else:
-                dataset[key] = loaded_data[key]
+    # for file_path in file_paths:
+    #     path = os.path.expanduser(file_path)
+    #     with open(path, 'rb') as f:
+    #         loaded_data = pkl.load(f)
+    #     for key in keys:
+    #         if key in dataset:
+    #             dataset[key] = np.concatenate([dataset[key], loaded_data[key]], axis=0)
+    #         else:
+    #             dataset[key] = loaded_data[key]
+    #
+    # dataset = preprocess_fn(dataset)
+    # generate_pos = True
+    # include_clock = False
+    #
+    # seperate_gait = True
+    #
+    # if not include_clock:
+    #     dataset['observations'] = np.concatenate([dataset['observations'][:,0:13], dataset['observations'][:,18:]], axis=-1)
+    #     print(dataset['observations'].shape)
+    #
+    # if not generate_pos:
+    #     dataset['observations'] = dataset['observations'][:,2:]
+    #
+    # if not seperate_gait:
+    #     dataset['rewards'][:,0] = -1
 
-    dataset = preprocess_fn(dataset)
-    generate_pos = True
-    include_clock = False
 
-    seperate_gait = True
+    file_path = os.path.expanduser('~/Desktop/backflip.pkl')
+    with open(file_path, 'rb') as f:
+        loaded_data = pkl.load(f)
+    this_obs = np.concatenate([loaded_data['gc'][:,:,0:3], loaded_data['gc'][:,:,4:7], loaded_data['gc'][:,:,3:4],
+                               loaded_data['gv'][:,:,0:6], loaded_data['gc'][:,:,7:], loaded_data['gv'][:,:,6:]], axis=-1)
+    this_acts = loaded_data['torque']
+    # this_acts = 0.05 * (loaded_data['torque'] + 0.5 * loaded_data['gv'][:,:,6:]) + loaded_data['gc'][:,:,7:]
+    # this_acts -= np.array([0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000])
+    this_obs = this_obs.reshape(-1, this_obs.shape[-1])
+    this_acts = this_acts.reshape(-1, this_acts.shape[-1])
+    this_rewards = np.zeros((4000*76,4))
+    this_rewards[:,:] = np.array([4, 0, 0, 0])
+    this_terminals = np.zeros((4000 * 76, 1))
+    this_terminals = this_terminals.astype(bool)
+    this_terminals = this_terminals.reshape(-1)
+    this_timeouts = loaded_data['timeouts'].astype(bool)
+    this_timeouts = this_timeouts.reshape(-1)
+    this_data = [this_acts, this_obs, this_rewards, this_terminals, this_timeouts]
 
-    if not include_clock:
-        dataset['observations'] = np.concatenate([dataset['observations'][:,0:13], dataset['observations'][:,18:]], axis=-1)
-        print(dataset['observations'].shape)
+    for i, key in enumerate(keys):
+        if key in dataset:
+            dataset[key] = np.concatenate([dataset[key], this_data[i]], axis=0)
+        else:
+            dataset[key] = this_data[i]
 
-    if not generate_pos:
-        dataset['observations'] = dataset['observations'][:,2:]
+    file_path = os.path.expanduser('~/Desktop/sideflip.pkl')
+    with open(file_path, 'rb') as f:
+        loaded_data = pkl.load(f)
+    this_obs = np.concatenate([loaded_data['gc'][:,:,0:3], loaded_data['gc'][:,:,4:7], loaded_data['gc'][:,:,3:4],
+                               loaded_data['gv'][:,:,0:6], loaded_data['gc'][:,:,7:], loaded_data['gv'][:,:,6:]], axis=-1)
+    this_acts = loaded_data['torque']
+    # this_acts = 0.05 * (loaded_data['torque'] + 0.5 * loaded_data['gv'][:,:,6:]) + loaded_data['gc'][:,:,7:]
+    # this_acts -= np.array([0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000])
+    this_obs = this_obs.reshape(-1, this_obs.shape[-1])
+    this_acts = this_acts.reshape(-1, this_acts.shape[-1])
+    this_rewards = np.zeros((4000*76,4))
+    this_rewards[:,:] = np.array([5, 0, 0, 0])
+    this_terminals = np.zeros((4000 * 76, 1))
+    this_terminals = this_terminals.astype(bool)
+    this_terminals = this_terminals.reshape(-1)
+    this_timeouts = loaded_data['timeouts'].astype(bool)
+    this_timeouts = this_timeouts.reshape(-1)
+    this_data = [this_acts, this_obs, this_rewards, this_terminals, this_timeouts]
 
-    if not seperate_gait:
-        dataset['rewards'][:,0] = -1
+    for i, key in enumerate(keys):
+        if key in dataset:
+            dataset[key] = np.concatenate([dataset[key], this_data[i]], axis=0)
+        else:
+            dataset[key] = this_data[i]
+
+    file_path = os.path.expanduser('~/Desktop/yawspin.pkl')
+    with open(file_path, 'rb') as f:
+        loaded_data = pkl.load(f)
+    this_obs = np.concatenate([loaded_data['gc'][:,:,0:3], loaded_data['gc'][:,:,4:7], loaded_data['gc'][:,:,3:4],
+                               loaded_data['gv'][:,:,0:6], loaded_data['gc'][:,:,7:], loaded_data['gv'][:,:,6:]], axis=-1)
+    this_acts = loaded_data['torque']
+    # this_acts = 0.05 * (loaded_data['torque'] + 0.5 * loaded_data['gv'][:,:,6:]) + loaded_data['gc'][:,:,7:]
+    # this_acts -= np.array([0.1000, 0.8000, -1.5000, -0.1000, 0.8000, -1.5000, 0.1000, 1.0000, -1.5000, -0.1000, 1.0000, -1.5000])
+    this_obs = this_obs.reshape(-1, this_obs.shape[-1])
+    this_acts = this_acts.reshape(-1, this_acts.shape[-1])
+    this_rewards = np.zeros((4000*76,4))
+    this_rewards[:,:] = np.array([6, 0, 0, 0])
+    this_terminals = np.zeros((4000 * 76, 1))
+    this_terminals = this_terminals.astype(bool)
+    this_terminals = this_terminals.reshape(-1)
+    this_timeouts = loaded_data['timeouts'].astype(bool)
+    this_timeouts = this_timeouts.reshape(-1)
+    this_data = [this_acts, this_obs, this_rewards, this_terminals, this_timeouts]
+
+    for i, key in enumerate(keys):
+        if key in dataset:
+            dataset[key] = np.concatenate([dataset[key], this_data[i]], axis=0)
+        else:
+            dataset[key] = this_data[i]
+
 
     N = dataset['rewards'].shape[0]
     data_ = collections.defaultdict(list)
@@ -110,7 +187,7 @@ def sequence_dataset(env, preprocess_fn):
     for i in range(N):
         done_bool = bool(dataset['terminals'][i])
         if use_timeouts:
-            final_timestep = dataset['timeouts'][i]
+            final_timestep = bool(dataset['timeouts'][i])
         else:
             final_timestep = (episode_step == env._max_episode_steps - 1)
 
@@ -119,6 +196,8 @@ def sequence_dataset(env, preprocess_fn):
             data_[k].append(dataset[k][i])
 
         if done_bool or final_timestep:
+            if done_bool:
+                print("here")
             episode_step = 0
             episode_data = {}
             for k in data_:

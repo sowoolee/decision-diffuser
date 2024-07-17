@@ -35,7 +35,7 @@ class Config(ParamsProto):
     use_padding = True
     include_returns = True
     discount = 0.99
-    max_path_length = 250 # 1000
+    max_path_length = 76 #250 # 1000
     hidden_dim = 512 # 256 # inv network dimension
     ar_inv = False
     train_only_inv = False
@@ -53,7 +53,7 @@ class Config(ParamsProto):
     ema_decay = 0.995
     log_freq = 1000
     save_freq = 5000
-    record_freq = 25000
+    record_freq = 2000
     sample_freq = 1000
     eval_freq = 1000
     n_saves = 5

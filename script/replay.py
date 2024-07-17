@@ -350,7 +350,7 @@ def import_diffuser():
     Config.device = 'cuda:1'
 
     loadpath = '/home/kdyun/workspace/decidiff/code/weights/diffuser/default_inv/predict_epsilon_200_1000000.0/dropout_0.25/hopper-medium-expert-v2/100/checkpoint'
-    loadpath = os.path.join(loadpath, 'state_100000.pt')
+    loadpath = os.path.join(loadpath, 'state_0.pt')
     state_dict = torch.load(loadpath, map_location=Config.device)
 
     # Load configs
@@ -491,7 +491,7 @@ def test(headless=False, command='fwd'):
     returns = to_device(torch.Tensor([[gait_idx, *cmd[command]] for i in range(num_eval)]), device)
 
     # evaluation setting
-    replay = False
+    replay = True
     random_start = True
     set_batch_state = True
     exclude_clock = True
@@ -514,12 +514,6 @@ def test(headless=False, command='fwd'):
 
     obs_comb = np.concatenate([state[:,0,:], state[:,1,:]], axis=-1)
 
-    if exclude_clock:
-        s0 = np.concatenate([state[:,0,:13], state[:,0,-24:]], axis=-1)
-        s1 = np.concatenate([state[:,1,:13], state[:,1,-24:]], axis=-1)
-        obs_comb = np.concatenate([s0,s1], axis=-1)
-    a = trainer.ema_model.inv_model(to_torch(obs_comb, device=device))
-    dataset.normalizer.unnormalize(to_np(a), 'actions') -dataset.normalizer.unnormalize(to_np(true_action[:,0,:]), 'actions')
 
     # testing start
     t = 0
@@ -530,8 +524,8 @@ def test(headless=False, command='fwd'):
     # set batch state
     if set_batch_state:
         env_ids = torch.tensor([0], dtype=torch.int32, device=device)
-        dof_pos = to_torch(obs[:,18:30])
-        dof_vel = to_torch(obs[:,30:42])
+        dof_pos = to_torch(obs[:,-24:-12])
+        dof_vel = to_torch(obs[:,-12:])
         base_state = to_torch([obs[0, 0:13]])
         base_state = to_torch(np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:13]], axis=-1))
         env.set_idx_state(env_ids, dof_pos, dof_vel, base_state)
@@ -539,17 +533,17 @@ def test(headless=False, command='fwd'):
     env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
 
     # set clock inputs
-    env.commands[:, 4] = step_frequency
-    env.commands[:, 5:8] = gait
-    phase_0 = to_torch(obs[:, 17])
-    env.gait_indices = to_torch(obs[:, 17])
-    env.clock_inputs = to_torch(obs[:, 13:17])
+    # env.commands[:, 4] = step_frequency
+    # env.commands[:, 5:8] = gait
+    # phase_0 = to_torch(obs[:, 17])
+    # env.gait_indices = to_torch(obs[:, 17])
+    # env.clock_inputs = to_torch(obs[:, 13:17])
 
     obs = np.concatenate([
                                 to_np([[0.,0.]]),
                                 to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
                                 to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
-                                to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
+                                # to_np(env.clock_inputs), to_np(env.gait_indices.unsqueeze(1)),
                                 to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
     obs_shot = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
 
@@ -593,17 +587,20 @@ def test(headless=False, command='fwd'):
 
         elif replay:
             action = to_np(x[:, t, :action_dim])
-            action = dataset.normalizer.unnormalize(action, 'actions')
+            # action = dataset.normalizer.unnormalize(action, 'actions')
             action = to_torch(action)
 
         # environment step
         obs_list = []
         with torch.no_grad():
-            env.commands[:, 4] = step_frequency
-            env.commands[:, 5:8] = gait
-            if t==0: env.gait_indices = phase_0
+            # env.commands[:, 4] = step_frequency
+            # env.commands[:, 5:8] = gait
+            # if t==0: env.gait_indices = phase_0
 
-            env.step(action)
+            env.step_torque(action)
+            print(action)
+            # env.step_torque(torch.zeros((1,12)))
+            time.sleep(0.1)
             env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
 
         this_obs = np.concatenate([ to_np([[0.,0.]]), to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
@@ -1545,12 +1542,13 @@ def test_serial(headless=False):
     env = load_test_env(label, headless=headless)
     num_eval = env.num_envs
 
-    demo2(env, trainer)
-
-    # demo(env, trainer, 1)
-    # demo(env, trainer, 2)
-    # demo(env, trainer, 3)
-    # demo(env, trainer, 0)
+    demo(env, trainer, 1)
+    demo(env, trainer, 2)
+    demo(env, trainer, 3)
+    demo(env, trainer, 0)
+    # demo(env, trainer, gait_num=-1, subtitle='1')
+    # demo(env, trainer, gait_num=-1, subtitle='2')
+    # demo(env, trainer, gait_num=-1, subtitle='3')
 
     # demo2(env, trainer)
 
@@ -1571,8 +1569,15 @@ def test_serial(headless=False):
     # demo3(env, trainer, [0, 2])
     # demo3(env, trainer, [0, 3])
 
+    # demo4(env, trainer, subtitle='1')
+    # demo4(env, trainer, subtitle='2')
+    # demo4(env, trainer, subtitle='3')
+    # demo4(env, trainer, subtitle='4')
+    # demo4(env, trainer, subtitle='5')
+
 
 if __name__ == '__main__':
     # to see the environment rendering, set headless=False
     # save(headless=False)
-    test_serial()
+    test(headless=False)
+    # test_serial()

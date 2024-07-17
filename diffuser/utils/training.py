@@ -565,7 +565,7 @@ class Trainer(object):
             savepath = os.path.join('images', f'sample-{i}.png')
             self.renderer.composite(savepath, observations)
 
-    def record_samples(self, batch_size=2, n_samples=2):
+    def record_samples(self, batch_size=2, n_samples=3):
         '''
             renders samples from (ema) diffusion model
         '''
@@ -581,15 +581,19 @@ class Trainer(object):
                 'b d -> (repeat b) d', repeat=n_samples,
             )
 
-            commands = [[1, 0.8, 0, 0], [1, -0.8, 0, 0], [1, 0, 0.4, 0], [1, 0, 0, 0.8]]
+            # commands = [[1, 0.8, 0, 0], [1, -0.8, 0, 0], [1, 0, 0.4, 0], [1, 0, 0, 0.8]]
             # commands = [[2, 0.8, 0, 0], [2, -0.8, 0, 0], [2, 0, 0.4, 0], [2, 0, 0, 0.8]]
             # commands = [[3, 0.8, 0, 0], [3, -0.8, 0, 0], [3, 0, 0.4, 0], [3, 0, 0, 0.8]]
+            # commands = [[-1, 0.8, 0, 0], [-1, -0.8, 0, 0], [-1, 0, 0.4, 0], [-1, 0, 0, 0.8]]
+            commands = [[4, 0, 0, 0], [5,0,0,0], [6,0,0,0]]
 
             ## [ n_samples x horizon x (action_dim + observation_dim) ]
             if self.ema_model.returns_condition:
                 # returns = to_device( 0.9 * torch.ones(n_samples, 1), self.device)
                 ############################ change the gait here ######################################
                 returns = to_device(torch.Tensor([random.choice(commands)
+                                                  for i in range(n_samples)]), self.device)
+                returns = to_device(torch.Tensor([commands[i]
                                                   for i in range(n_samples)]), self.device)
                 #########################################################################################
             else:
