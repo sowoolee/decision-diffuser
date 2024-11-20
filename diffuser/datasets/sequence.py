@@ -33,7 +33,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         max_n_episodes=100000, termination_penalty=0, use_padding=True, discount=0.99, returns_scale=1000, include_returns=False,
         action_scale = 1.0):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
-        self.env = env = load_environment(env)
+        self.env = env # = load_environment(env)
         self.returns_scale = returns_scale
         self.horizon = horizon
         self.max_path_length = max_path_length

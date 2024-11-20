@@ -22,9 +22,9 @@ def suppress_output():
         with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
             yield (err, out)
 
-with suppress_output():
-    ## d4rl prints out a variety of warnings
-    import d4rl
+# with suppress_output():
+#     ## d4rl prints out a variety of warnings
+#     import d4rl
 
 #-----------------------------------------------------------------------------#
 #-------------------------------- general api --------------------------------#
@@ -61,15 +61,17 @@ def sequence_dataset(env, preprocess_fn):
             terminals
     """
 
-    file_path = os.path.expanduser('~/Desktop/data.pkl')
-    with open(file_path, 'rb') as f:
-        loaded_data = pkl.load(f)
-        dataset = loaded_data
+    # file_path = os.path.expanduser('~/Desktop/data.pkl')
+    # with open(file_path, 'rb') as f:
+    #     loaded_data = pkl.load(f)
+    #     dataset = loaded_data
 
-    file_paths = ['~/Desktop/dataset/0627_gait_joy_faster/trot/data.pkl',
-                  '~/Desktop/dataset/0627_gait_joy_faster/bound/data.pkl',
-                  '~/Desktop/dataset/0627_gait_joy_faster/pace/data.pkl',
-                  '~/Desktop/dataset/0627_gait_joy_faster/pronk/data.pkl']
+    file_paths = [
+                '~/Desktop/trot/data.pkl',
+                  # '~/Desktop/dataset/0627_gait_joy_faster/bound/data.pkl',
+                  # '~/Desktop/dataset/0627_gait_joy_faster/pace/data.pkl',
+                  # '~/Desktop/dataset/0627_gait_joy_faster/pronk/data.pkl'
+                  ]
     dataset = {}
     keys = ['actions', 'observations', 'rewards', 'terminals', 'timeouts']
 
