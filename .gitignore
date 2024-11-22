@@ -1,8 +1,13 @@
 *.diff
 *.pt
 *.pkl
-/analysis/diffuser/default_inv/predict_epsilon_200_1000000.0/dropout_0.25/hopper-medium-expert-v2/100/*
-/analysis/diffuser/default_inv/predict_epsilon_200_1000000.0/dropout_0.25/hopper-medium-expert-v2/100/index.diff
-/analysis/outputs.log
+*.iml
+.idea
 /analysis/runs/*
 /runs/*
+/analysis/
+!/analysis/default_inv.jsonl
+!/analysis/train.py
+!/analysis/eval.py
+!/analysis/default_inv.py
+!/analysis/__init__.py
