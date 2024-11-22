@@ -5,12 +5,12 @@ from params_proto import ParamsProto, PrefixProto, Proto
 class Config(ParamsProto):
     # misc
     seed = 100
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    bucket = '/home/kdyun/workspace/decidiff/code/weights/'
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    bucket = '/home/hubolab/workspace/DD/weights/'
     dataset = 'hopper-medium-expert-v2'
 
     ## model
-    model = 'models.TemporalUnet'
+    model = 'models.TemporalMamba' #'models.TemporalUnet'
     diffusion = 'models.GaussianInvDynDiffusion'
     horizon = 56 # 100
     n_diffusion_steps = 100 # 200
@@ -18,10 +18,10 @@ class Config(ParamsProto):
     loss_weights = None
     loss_discount = 1
     predict_epsilon = False
-    dim_mults = (1, 4, 4, 8) # 1,4,8
+    dim_mults = (1, 2, 4) # 1,4,8
     returns_condition = True
     calc_energy=False
-    dim = 256 # 128
+    dim = 128 # 128
     condition_dropout = 0.25
     condition_guidance_w = 1.4
     test_ret = 0.9
@@ -52,7 +52,7 @@ class Config(ParamsProto):
     gradient_accumulate_every = 2
     ema_decay = 0.995
     log_freq = 1000
-    save_freq = 5000
+    save_freq = 2000
     record_freq = 25000
     sample_freq = 1000
     eval_freq = 1000
