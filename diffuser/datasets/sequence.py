@@ -31,7 +31,7 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __init__(self, env='hopper-medium-replay', horizon=64,
         normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
         max_n_episodes=100000, termination_penalty=0, use_padding=True, discount=0.99, returns_scale=1000, include_returns=False,
-        action_scale = 1.0):
+        action_scale = 1.0, sample_coarse=False):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
         self.env = env # = load_environment(env)
         self.returns_scale = returns_scale
@@ -41,6 +41,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.discounts = self.discount ** np.arange(self.max_path_length)[:, None]
         self.use_padding = use_padding
         self.include_returns = include_returns
+        self.sample_coarse = sample_coarse
         itr = sequence_dataset(env, self.preprocess_fn)
 
         fields = ReplayBuffer(max_n_episodes, max_path_length, termination_penalty)
@@ -50,7 +51,10 @@ class SequenceDataset(torch.utils.data.Dataset):
         print("measuring time from now")
         start_time = time.time()
         self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
-        self.indices = self.make_indices(fields.path_lengths, horizon)
+        if not self.sample_coarse:
+            self.indices = self.make_indices(fields.path_lengths, horizon)
+        else:
+            self.indices = self.make_indices_f(fields.path_lengths, horizon)
 
         self.observation_dim = fields.observations.shape[-1]
         self.action_dim = fields.actions.shape[-1]
@@ -92,6 +96,19 @@ class SequenceDataset(torch.utils.data.Dataset):
         indices = np.array(indices)
         return indices
 
+    def make_indices_f(self, path_lengths, horizon, sample_rate=2):
+        indices = []
+        for i, path_length in enumerate(path_lengths):
+            max_start = min(path_length - 1, self.max_path_length - horizon * sample_rate)
+            if not self.use_padding:
+                max_start = min(max_start, path_length - horizon)
+            for start in range(max_start):
+                end = start + horizon * sample_rate
+                indices.append((i, start, end))
+        indices = np.array(indices)
+        return indices
+
+
     def get_conditions(self, observations):
         '''
             condition on current observation for planning
@@ -104,37 +121,37 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx, eps=1e-4):
         path_ind, start, end = self.indices[idx]
 
-        # unnormed_obs = self.fields.observations[path_ind, start:end]
-        # unnormed_xy = unnormed_obs[:,0:2]
-        # unnormed_other = unnormed_obs[:,2:]
-        # unnormed_init_xy = unnormed_obs[0:1,0:2]
-        # unnormed_xy = unnormed_xy - unnormed_init_xy
-        # unnormed_obs = np.concatenate([unnormed_xy, unnormed_other], axis=-1)
-        # observations = self.normalizer.normalize(unnormed_obs, 'observations')
+        if self.sample_coarse:
+            unnormed_obs = self.fields.observations[path_ind, start:end:2]
+            unnormed_xy = unnormed_obs[:,0:2]
+            normed_obs = self.fields.normed_observations[path_ind, start:end:2]
+            normed_other = normed_obs[:,2:]
+            # scale manually
+            unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2])
+            observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
 
-        unnormed_obs = self.fields.observations[path_ind, start:end]
-        unnormed_xy = unnormed_obs[:,0:2]
-        normed_obs = self.fields.normed_observations[path_ind, start:end]
-        normed_other = normed_obs[:,2:]
-        # scale manually
-        unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2])
-        observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
+            actions = self.fields.actions[path_ind, start:end:2] / self.action_scale
 
-        # actions = self.fields.normed_actions[path_ind, start:end]
-        # actions = actions * self.action_scale
+            conditions = self.get_conditions(observations)
+            trajectories = np.concatenate([actions, observations], axis=-1)
 
-        actions = self.fields.actions[path_ind, start:end] / self.action_scale
+        else:
+            unnormed_obs = self.fields.observations[path_ind, start:end]
+            unnormed_xy = unnormed_obs[:,0:2]
+            normed_obs = self.fields.normed_observations[path_ind, start:end]
+            normed_other = normed_obs[:,2:]
+            # scale manually
+            unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2])
+            observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
 
-        conditions = self.get_conditions(observations)
-        trajectories = np.concatenate([actions, observations], axis=-1)
+            actions = self.fields.actions[path_ind, start:end] / self.action_scale
+
+            conditions = self.get_conditions(observations)
+            trajectories = np.concatenate([actions, observations], axis=-1)
+
+
 
         if self.include_returns:
-            ################## reward float version ####################
-            # rewards = self.fields.rewards[path_ind, start:]
-            # discounts = self.discounts[:len(rewards)]
-            # returns = (discounts * rewards).sum()
-            # returns = np.array([returns/self.returns_scale], dtype=np.float32)
-            ##############################################################
             ################## reward gait version #####################
             rewards = self.fields.rewards[path_ind, start:end]
             returns = rewards[0]

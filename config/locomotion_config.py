@@ -7,10 +7,10 @@ class Config(ParamsProto):
     seed = 100
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     bucket = '/home/hubolab/workspace/DD/weights/'
-    dataset = 'hopper-medium-expert-v2'
+    dataset = 'go1-locomotion'
 
     ## model
-    model = 'models.TemporalMamba' #'models.TemporalUnet'
+    model = 'models.TemporalMamba'
     diffusion = 'models.GaussianInvDynDiffusion'
     horizon = 56 # 100
     n_diffusion_steps = 100 # 200
@@ -29,7 +29,7 @@ class Config(ParamsProto):
 
     ## dataset
     loader = 'datasets.SequenceDataset'
-    normalizer = 'CDFNormalizer'
+    normalizer = 'LimitsNormalizer'
     preprocess_fns = []
     clip_denoised = True
     use_padding = True
@@ -52,7 +52,7 @@ class Config(ParamsProto):
     gradient_accumulate_every = 2
     ema_decay = 0.995
     log_freq = 1000
-    save_freq = 2000
+    save_freq = 25000
     record_freq = 25000
     sample_freq = 1000
     eval_freq = 1000

@@ -12,6 +12,9 @@ from .helpers import (
     Losses,
 )
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())
+
 class GaussianDiffusion(nn.Module):
     def __init__(self, model, horizon, observation_dim, action_dim, n_timesteps=1000,
         loss_type='l1', clip_denoised=False, predict_epsilon=True,
@@ -306,7 +309,6 @@ class GaussianInvDynDiffusion(nn.Module):
         else:
             self.inv_model = nn.Sequential(
                 nn.Linear(2 * self.observation_dim, hidden_dim),
-                # nn.Linear(2 * (self.observation_dim - 5), hidden_dim),
                 nn.ReLU(),
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(),
@@ -358,6 +360,8 @@ class GaussianInvDynDiffusion(nn.Module):
         custom_loss_weights = self.get_custom_loss_weights(range(-24, 0))
         self.loss_fn = Losses['state_l2'](loss_weights)
         self.each_loss_fn = Losses['each_state_l2'](loss_weights)
+
+        print("Total params: ", count_parameters(self.model))
 
     def get_loss_weights(self, discount):
         '''
@@ -490,7 +494,7 @@ class GaussianInvDynDiffusion(nn.Module):
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, cond, returns=None, verbose=True, return_diffusion=False):
+    def p_sample_loop(self, shape, cond, returns=None, verbose=False, return_diffusion=False):
         device = self.betas.device
 
         batch_size = shape[0]
@@ -609,9 +613,9 @@ class GaussianInvDynDiffusion(nn.Module):
         assert noise.shape == x_recon.shape
 
         if self.predict_epsilon:
-            loss, info = self.loss_fn(x_recon, noise)
+            loss, info = self.loss_fn(x_recon, noise)  # predict noise from noisy sequence
         else:
-            loss, info = self.loss_fn(x_recon, x_start)
+            loss, info = self.loss_fn(x_recon, x_start)  # predict original sequence
 
         return loss, info
 

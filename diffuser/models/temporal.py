@@ -17,6 +17,7 @@ from mamba_ssm.modules.mamba2 import Mamba2
 from mamba_ssm.modules.mha import MHA
 from mamba_ssm.modules.mlp import GatedMLP
 from mamba_ssm.ops.triton.layer_norm import RMSNorm, layer_norm_fn, rms_norm_fn
+from .mamba_r import MambaR
 
 from .helpers import (
     SinusoidalPosEmb,
@@ -24,6 +25,10 @@ from .helpers import (
     Upsample1d,
     Conv1dBlock,
 )
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())
+
 
 class Residual(nn.Module):
     def __init__(self, fn):
@@ -338,7 +343,7 @@ class Block(nn.Module):
         self.skip_linear = nn.Linear(2 * dim, dim) if skip else None
 
     def forward(
-            self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None, skip=None, **mixer_kwargs,
+            self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None, skip=None, step_scale=None, **mixer_kwargs,
     ):
         r"""Pass the input through the encoder layer.
 
@@ -365,7 +370,10 @@ class Block(nn.Module):
                 eps=self.norm.eps,
                 is_rms_norm=isinstance(self.norm, RMSNorm)
             )
-        hidden_states = self.mixer(hidden_states, inference_params=inference_params, **mixer_kwargs)
+        if step_scale == None:
+            hidden_states = self.mixer(hidden_states, inference_params=inference_params, **mixer_kwargs)
+        else:
+            hidden_states = self.mixer(hidden_states, inference_params=inference_params, scale_factor=step_scale, **mixer_kwargs)
 
         if self.mlp is not None:
             if not self.fused_add_norm:
@@ -417,14 +425,22 @@ def create_block(
         # Create a copy of the config to modify
         ssm_cfg = copy.deepcopy(ssm_cfg) if ssm_cfg is not None else {}
         ssm_layer = ssm_cfg.pop("layer", "Mamba1")
-        if ssm_layer not in ["Mamba1", "Mamba2"]:
+        if ssm_layer == "MambaR":
+            mixer_cls = partial(
+                MambaR,
+                layer_idx=layer_idx,
+                **ssm_cfg,
+                **factory_kwargs
+            )
+        elif ssm_layer in ["Mamba1", "Mamba2"]:
+            mixer_cls = partial(
+                Mamba2 if ssm_layer == "Mamba2" else Mamba,
+                layer_idx=layer_idx,
+                **ssm_cfg,
+                **factory_kwargs
+            )
+        else:
             raise ValueError(f"Invalid ssm_layer: {ssm_layer}, only support Mamba1 and Mamba2")
-        mixer_cls = partial(
-            Mamba2 if ssm_layer == "Mamba2" else Mamba,
-            layer_idx=layer_idx,
-            **ssm_cfg,
-            **factory_kwargs
-        )
     else:
         mixer_cls = partial(MHA, layer_idx=layer_idx, **attn_cfg, **factory_kwargs)
     norm_cls = partial(
@@ -465,6 +481,7 @@ class TemporalMamba(nn.Module):
             residual_in_fp32=False,
             fused_add_norm=False,
             skip=True,
+            step_scale=2.,
 
             calc_energy = False,
             dim_mults = None,
@@ -474,6 +491,13 @@ class TemporalMamba(nn.Module):
             dtype=None,
     ):
         super().__init__()
+
+        self.step_scale = step_scale
+        if self.step_scale != None:
+            ssm_cfg = {
+                "layer": "MambaR",  # Use MambaR
+            }
+            print("step scale factor : ", self.step_scale)
 
         self.transition_dim = transition_dim
         input_dim = transition_dim
@@ -548,8 +572,7 @@ class TemporalMamba(nn.Module):
             for i in range(depth)
         ])
 
-
-    def forward(self, x, cond, time, returns=None, use_dropout=True, force_dropout=False, inference_params=None):
+    def forward(self, x, cond, time, returns=None, use_dropout=True, force_dropout=False, inference_params=None, step_scale=None):
 
         x = self.proj_up(x)  # (B,L,37) -> (B,L,D)
         B,L,D = x.shape
@@ -575,14 +598,17 @@ class TemporalMamba(nn.Module):
 
         h = []
 
+        if step_scale == None:
+            step_scale = self.step_scale
+
         for block in self.downs:
-            hidden_states, residual = block(hidden_states, residual, inference_params=inference_params)
+            hidden_states, residual = block(hidden_states, residual, inference_params=inference_params, step_scale=step_scale)
             h.append(hidden_states)
 
-        hidden_states, residual = self.mid_block(hidden_states, residual, inference_params=inference_params)
+        hidden_states, residual = self.mid_block(hidden_states, residual, inference_params=inference_params, step_scale=step_scale)
 
         for block in self.ups:
-            hidden_states, residual = block(hidden_states, residual, inference_params=inference_params, skip=h.pop())
+            hidden_states, residual = block(hidden_states, residual, inference_params=inference_params, skip=h.pop(), step_scale=step_scale)
 
         x = hidden_states
 

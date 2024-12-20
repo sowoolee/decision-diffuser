@@ -215,8 +215,6 @@ class Trainer(object):
                     org_loss = (targ_unnormed - pred_unnormed) ** 2
                     org_loss = np.mean(org_loss, axis=(0,1))
 
-                    # a_unnormed = self.dataset.normalizer.unnormalize(to_np(a_targ), 'actions')
-                    # a_pred_unnormed = self.dataset.normalizer.unnormalize(to_np(a_pred), 'actions')
                     a_unnormed = to_np(a_targ) * self.action_scale
                     a_pred_unnormed = to_np(a_pred) * self.action_scale
                     unnormed_inv_loss = (a_pred_unnormed - a_unnormed) ** 2
@@ -227,13 +225,11 @@ class Trainer(object):
                     writer.add_scalar("loss/unnormed inv loss", unnormed_inv_loss, step)
 
                     writer.add_scalar("error/base_pos[m]", np.sqrt(np.sum(normed_loss[0:2])), step)
-                    # writer.add_scalar("error/base_pos[m]", np.sqrt(np.sum(org_loss[0:3])), step)
                     writer.add_scalar("error/base_ori[quat]", np.sqrt(np.sum(org_loss[3:7])), step)
                     writer.add_scalar("error/base_lin_vel[m/s]", np.sqrt(np.sum(org_loss[7:10])), step)
                     writer.add_scalar("error/base_ang_vel[rad/s]", np.sqrt(np.sum(org_loss[10:13])), step)
                     writer.add_scalar("error/joint_pos[rad]", np.sqrt(np.sum(org_loss[-24:-12])), step)
                     writer.add_scalar("error/joint_vel[rad/s]", np.sqrt(np.sum(org_loss[-12:])), step)
-
 
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -565,7 +561,7 @@ class Trainer(object):
             savepath = os.path.join('images', f'sample-{i}.png')
             self.renderer.composite(savepath, observations)
 
-    def record_samples(self, batch_size=2, n_samples=2):
+    def record_samples(self, batch_size=2, n_samples=4):
         '''
             renders samples from (ema) diffusion model
         '''
@@ -581,7 +577,8 @@ class Trainer(object):
                 'b d -> (repeat b) d', repeat=n_samples,
             )
 
-            commands = [[1, 0.8, 0, 0], [1, -0.8, 0, 0], [1, 0, 0.4, 0], [1, 0, 0, 0.8]]
+            commands = [[1, 1.5, 0, 0], [2, 1.5, 0, 0], [3, 1.5, 0, 0], [0, 1.5, 0, 0]]
+            # commands = [[1, 0.8, 0, 0], [1, -0.8, 0, 0], [1, 0, 0.4, 0], [1, 0, 0, 0.8]]
             # commands = [[2, 0.8, 0, 0], [2, -0.8, 0, 0], [2, 0, 0.4, 0], [2, 0, 0, 0.8]]
             # commands = [[3, 0.8, 0, 0], [3, -0.8, 0, 0], [3, 0, 0.4, 0], [3, 0, 0, 0.8]]
 
@@ -589,17 +586,13 @@ class Trainer(object):
             if self.ema_model.returns_condition:
                 # returns = to_device( 0.9 * torch.ones(n_samples, 1), self.device)
                 ############################ change the gait here ######################################
-                returns = to_device(torch.Tensor([random.choice(commands)
+                returns = to_device(torch.Tensor([commands[i]
                                                   for i in range(n_samples)]), self.device)
                 #########################################################################################
             else:
                 returns = None
 
-            if self.ema_model.model.calc_energy:
-                samples = self.ema_model.grad_conditional_sample(conditions, returns=returns)
-            else:
-                samples = self.ema_model.conditional_sample(conditions, returns=returns)
-
+            samples = self.ema_model.conditional_sample(conditions, returns=returns)
             samples = to_np(samples)
 
             ## [ n_samples x horizon x observation_dim ]
@@ -623,6 +616,6 @@ class Trainer(object):
             scaled_xy = normed_observations[:, :, 0:2]
             observations = np.concatenate([scaled_xy, observations[:, :, 2:]], axis=-1)
 
-            savepath = 'training'
+            savepath = 'train'
             name = str(self.step)
             self.renderer.composite3(savepath, observations, name)
