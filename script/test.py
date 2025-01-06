@@ -459,5 +459,66 @@ def test_add():
     plt.tight_layout()
     plt.show()
 
+
+def export_diffuser_onnx():
+    # import diffusion model
+    trainer = import_diffuser()
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    unet = trainer.ema_model.model.to('cpu')
+    cond = {0: 0.1*torch.ones((1,37), device='cpu')}
+    s0 = cond[0]
+    returns = torch.tensor([[1,0,0,0]], dtype=torch.float, device='cpu')
+    x = 0.5*torch.ones((1,192,37), device='cpu')
+    t = torch.full((1,), 1, device='cpu', dtype=torch.long)
+
+    torch_out = unet(x, s0, t, returns, use_dropout=False)
+
+    # torch.onnx.export(unet,               # 실행될 모델
+    #                   (x, s0, t, returns, False, False),                  # 모델 입력값 (튜플로 여러 입력값 전달)
+    #                   "diffuser.onnx",   # 모델 저장 경로
+    #                   export_params=True,        # 모델 파일 안에 학습된 모델 가중치를 저장할지의 여부
+    #                   opset_version=11,          # 모델을 변환할 때 사용할 ONNX 버전
+    #                   do_constant_folding=True,  # 최적화시 상수폴딩을 사용할지의 여부
+    #                   input_names = ['x', 'cond', 'time', 'returns', 'use_dropout', 'force_dropout'],   # 모델의 입력값을 가리키는 이름
+    #                   output_names = ['output'],            # 모델의 출력값을 가리키는 이름
+    #                   )
+
+    onnx_model_path = "/home/kdyun/Desktop/diffuser.onnx"
+
+    # model = onnx.load("diffuser.onnx")
+    # for input in model.graph.input:
+    #     print(input.name)
+
+    ort_session = ort.InferenceSession(onnx_model_path)
+
+    ort_inputs = {
+        'x': x.cpu().numpy(),
+        # 'cond': s0.cpu().numpy(),
+        'time': t.cpu().numpy(),
+        'returns': returns.cpu().numpy(),
+        # 'use_dropout': np.array(False, dtype=np.bool_),
+        # 'force_dropout': np.array(False, dtype=np.bool_)
+    }
+    ort_outs = ort_session.run(None, ort_inputs)
+
+    inf_t = 0
+    for _ in range(80):
+        start = time.time()
+        ort_outs = ort_session.run(None, ort_inputs)
+        end = time.time()
+        inf_t += end - start
+    print("onnx unet sampling time : {}".format(inf_t / 10))
+
+    onnx_out_np = ort_outs[0]
+    torch_out_np = torch_out.detach().cpu().numpy()
+
+    difference_norm = (np.linalg.norm(onnx_out_np - torch_out_np))
+    print(f"The norm of the difference between ONNX and PyTorch outputs is: {difference_norm}")
+
+    return None
+
 if __name__ == '__main__':
     test_add()
