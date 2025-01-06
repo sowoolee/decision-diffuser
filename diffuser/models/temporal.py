@@ -481,7 +481,7 @@ class TemporalMamba(nn.Module):
             residual_in_fp32=False,
             fused_add_norm=False,
             skip=True,
-            step_scale=2.,
+            step_scale=None,
 
             calc_energy = False,
             dim_mults = None,

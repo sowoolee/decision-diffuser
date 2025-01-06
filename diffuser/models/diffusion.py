@@ -484,6 +484,14 @@ class GaussianInvDynDiffusion(nn.Module):
                 x_start=x_recon, x_t=x, t=t)
         return model_mean, posterior_variance, posterior_log_variance
 
+    def p_sample_(self, x, cond, t, returns=None):
+        b, *_, device = *x.shape, x.device
+        model_mean, _, model_log_variance = self.p_mean_variance(x=x, cond=cond, t=t, returns=returns)
+        noise = 0.5*torch.randn_like(x)
+        # no noise when t == 0
+        nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
+        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+
     @torch.no_grad()
     def p_sample(self, x, cond, t, returns=None):
         b, *_, device = *x.shape, x.device
@@ -521,6 +529,51 @@ class GaussianInvDynDiffusion(nn.Module):
             return x
 
     @torch.no_grad()
+    def p_sample_loop_slice(self, xt, cond, start, returns=None):
+        batch_size = len(xt)
+        device = self.betas.device
+
+        if start < 25:
+            end = 1
+        elif start < 50:
+            end = 25
+        elif start < 75:
+            end = 50
+        else:
+            end = 75
+
+        end = 0
+
+        for i in range(start, end - 1, -1):
+            timesteps = torch.full((batch_size,), i, device=device).long()
+            xt = self.p_sample(xt, cond, timesteps, returns)
+            xt = apply_conditioning(xt, cond, 0)
+
+        return xt
+
+
+    @torch.no_grad()
+    def p_sample_loop_acc(self, shape, cond, returns=None, verbose=False, return_diffusion=False):
+        device = self.betas.device
+
+        batch_size = shape[0]
+        x = torch.randn(shape, device=device)
+        x = apply_conditioning(x, cond, 0)
+
+        progress = utils.Progress(self.n_timesteps) if verbose else utils.Silent()
+
+        for i in [99,75,50,25]:
+        # for i in reversed(range(0, self.n_timesteps)):
+            timesteps = torch.full((batch_size,), i, device=device).long()
+            x = self.p_sample(x, cond, timesteps, returns)
+            x = apply_conditioning(x, cond, 0)
+            progress.update({'t': i})
+
+        progress.close()
+
+        return x
+
+    @torch.no_grad()
     def conditional_sample(self, cond, returns=None, horizon=None, *args, **kwargs):
         '''
             conditions : [ (time, state), ... ]
@@ -532,6 +585,14 @@ class GaussianInvDynDiffusion(nn.Module):
 
         return self.p_sample_loop(shape, cond, returns, *args, **kwargs)
 
+
+    @torch.no_grad()
+    def conditional_sample_acc(self, cond, returns=None, horizon=None, *args, **kwargs):
+        device = self.betas.device
+        batch_size = len(cond[0])
+        horizon = horizon or self.horizon
+        shape = (batch_size, horizon, self.observation_dim)
+        return self.p_sample_loop_acc(shape, cond, returns, *args, **kwargs)
 
     @torch.no_grad()
     def p_warm_sample_loop(self, shape, cond, warm_sample, warm_diffusion_steps, returns=None, verbose=True, return_diffusion=False):

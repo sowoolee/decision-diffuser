@@ -57,75 +57,41 @@ def main(**deps):
     # -----------------------------------------------------------------------------#
     # ------------------------------ model & trainer ------------------------------#
     # -----------------------------------------------------------------------------#
-    if Config.diffusion == 'models.GaussianInvDynDiffusion':
-        model_config = utils.Config(
-            Config.model,
-            savepath='model_config.pkl',
-            horizon=Config.horizon,
-            transition_dim=observation_dim,
-            cond_dim=observation_dim,
-            dim_mults=Config.dim_mults,
-            returns_condition=Config.returns_condition,
-            dim=Config.dim,
-            condition_dropout=Config.condition_dropout,
-            calc_energy=Config.calc_energy,
-            device=Config.device,
-        )
+    model_config = utils.Config(
+        Config.model,
+        savepath='model_config.pkl',
+        horizon=Config.horizon,
+        transition_dim=observation_dim,
+        cond_dim=observation_dim,
+        dim_mults=Config.dim_mults,
+        returns_condition=Config.returns_condition,
+        dim=Config.dim,
+        condition_dropout=Config.condition_dropout,
+        calc_energy=Config.calc_energy,
+        device=Config.device,
+    )
 
-        diffusion_config = utils.Config(
-            Config.diffusion,
-            savepath='diffusion_config.pkl',
-            horizon=Config.horizon,
-            observation_dim=observation_dim,
-            action_dim=action_dim,
-            n_timesteps=Config.n_diffusion_steps,
-            loss_type=Config.loss_type,
-            clip_denoised=Config.clip_denoised,
-            predict_epsilon=Config.predict_epsilon,
-            hidden_dim=Config.hidden_dim,
-            ar_inv=Config.ar_inv,
-            train_only_inv=Config.train_only_inv,
-            ## loss weighting
-            action_weight=Config.action_weight,
-            loss_weights=Config.loss_weights,
-            loss_discount=Config.loss_discount,
-            returns_condition=Config.returns_condition,
-            condition_guidance_w=Config.condition_guidance_w,
-            device=Config.device,
-        )
-    else:
-        model_config = utils.Config(
-            Config.model,
-            savepath='model_config.pkl',
-            horizon=Config.horizon,
-            transition_dim=observation_dim + action_dim,
-            cond_dim=observation_dim,
-            dim_mults=Config.dim_mults,
-            returns_condition=Config.returns_condition,
-            dim=Config.dim,
-            condition_dropout=Config.condition_dropout,
-            calc_energy=Config.calc_energy,
-            device=Config.device,
-        )
-
-        diffusion_config = utils.Config(
-            Config.diffusion,
-            savepath='diffusion_config.pkl',
-            horizon=Config.horizon,
-            observation_dim=observation_dim,
-            action_dim=action_dim,
-            n_timesteps=Config.n_diffusion_steps,
-            loss_type=Config.loss_type,
-            clip_denoised=Config.clip_denoised,
-            predict_epsilon=Config.predict_epsilon,
-            ## loss weighting
-            action_weight=Config.action_weight,
-            loss_weights=Config.loss_weights,
-            loss_discount=Config.loss_discount,
-            returns_condition=Config.returns_condition,
-            condition_guidance_w=Config.condition_guidance_w,
-            device=Config.device,
-        )
+    diffusion_config = utils.Config(
+        Config.diffusion,
+        savepath='diffusion_config.pkl',
+        horizon=Config.horizon,
+        observation_dim=observation_dim,
+        action_dim=action_dim,
+        n_timesteps=Config.n_diffusion_steps,
+        loss_type=Config.loss_type,
+        clip_denoised=Config.clip_denoised,
+        predict_epsilon=Config.predict_epsilon,
+        hidden_dim=Config.hidden_dim,
+        ar_inv=Config.ar_inv,
+        train_only_inv=Config.train_only_inv,
+        ## loss weighting
+        action_weight=Config.action_weight,
+        loss_weights=Config.loss_weights,
+        loss_discount=Config.loss_discount,
+        returns_condition=Config.returns_condition,
+        condition_guidance_w=Config.condition_guidance_w,
+        device=Config.device,
+    )
 
     trainer_config = utils.Config(
         utils.Trainer,

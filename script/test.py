@@ -22,6 +22,7 @@ import time
 import os
 from copy import deepcopy
 from diffuser.utils.arrays import to_torch, to_np, to_device
+from diffuser.models.helpers import apply_conditioning
 
 from isaacgym.torch_utils import quat_rotate_inverse
 
@@ -98,7 +99,7 @@ def cycle(dl):
             yield data
 
 
-def import_diffuser():
+def import_diffuser(path):
     import diffuser.utils as utils
     from ml_logger import logger, RUN
     from config.locomotion_config import Config
@@ -109,9 +110,10 @@ def import_diffuser():
 
     Config.device = 'cuda:0'
 
-    loadpath = '/home/hubolab/workspace/DD/weights/diffuser/4_gaits/mamba_r/checkpoint'
-    # loadpath = '/home/hubolab/workspace/DD/weights/diffuser/go1_locomotion/mamba/checkpoint'
-    loadpath = os.path.join(loadpath, 'state_100000.pt')
+    basepath = '/home/hubolab/workspace/DD/weights/diffuser/'
+    # basepath = '/home/hubolab/workspace/DD/weights/diffuser/4_gaits/mamba/checkpoint'
+    # loadpath = '/home/hubolab/workspace/DD/weights/diffuser3/ADD/mamba/checkpoint'
+    loadpath = os.path.join(basepath, path, 'checkpoint', 'state_100000.pt')
     state_dict = torch.load(loadpath, map_location=Config.device)
 
     # Load configs
@@ -330,5 +332,132 @@ def test():
     plt.show()
 
 
+def test_add():
+    label = "gait-conditioned-agility/pretrain-v0/train"
+    env = load_env(label, headless=False)
+
+    # import diffusion model
+    trainer = import_diffuser('4_gaits/mamba')
+    dataset = trainer.dataset
+    device = trainer.device
+    renderer = trainer.renderer
+
+    # trainer.record_samples_acc()
+
+    # load environment
+    num_envs = env.num_envs
+
+    # y conditioning
+    gait_num = -1
+    v_x = 1.5
+
+    # start testing
+    t = 0
+    env.reset()
+    total_steps = 200
+    state_traj = []
+    inference_time = 0
+
+    measured_x_vels = np.zeros(total_steps)
+    measured_y_vels = np.zeros(total_steps)
+    planned_x_vels = np.zeros(total_steps)
+    planned_y_vels = np.zeros(total_steps)
+    target_x_vels = np.ones(total_steps) * v_x
+
+    while t < total_steps:
+        # if t < total_steps * 0.4:
+        #    gait_num = 3
+        # else:
+        #    gait_num = 0
+        returns = to_device(torch.Tensor([[gait_num, v_x, 0,0] for i in range(num_envs)]), device)
+
+        obs = np.concatenate([
+            to_np([[0.,0.]]),
+            to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+            to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+            to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+
+        s_t = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+        state_traj.append(s_t)
+
+        # action sampling
+        obs = dataset.normalizer.normalize(obs, 'observations')
+        obs = np.concatenate([to_np([[0.3,0.3]]), obs[:,2:]], axis=-1)
+
+        conditions = {0: to_torch(obs, device=device)}
+
+        # state trajectory sampling
+        start = time.time()
+        # samples = trainer.ema_model.conditional_sample_acc(conditions, returns)
+
+        x = torch.randn(1,56,37).to(device)
+        x = apply_conditioning(x, conditions, 0)
+        timestep = torch.full((1,), 99, device=x.device).long()
+
+        samples = trainer.ema_model.model(x, conditions, timestep, returns)
+        samples = apply_conditioning(samples, conditions, 0)
+
+        end = time.time()
+        inference_time += (end - start)
+        obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+
+        if t==30:
+            planned_linvel = to_np(
+                quat_rotate_inverse(to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,3:7]), to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,7:10]))
+            )
+            for i in range(planned_linvel.shape[0]):
+                planned_x_vels[i] = planned_linvel[i][0]
+                planned_y_vels[i] = planned_linvel[i][1]
+        # quat_rotate_inverse(to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,3:7]), to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,7:10]))
+
+        with torch.no_grad():
+            action = trainer.ema_model.inv_model(obs_comb)
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        measured_x_vels[t] = env.base_lin_vel[0, 0]
+        measured_y_vels[t] = env.base_lin_vel[0, 1]
+
+        print("Environment timestep: {}".format(t))
+
+        t += 1
+
+    print('evaluation ended')
+
+    target_vel = np.array([v_x, 0])
+    planned_xy = planned_linvel[:,:2]
+    measured_xy = np.stack([measured_x_vels, measured_y_vels], axis=1)
+    diff = measured_xy - target_vel # planned_xy - target_vel
+    velocity_norms = np.linalg.norm(diff, axis=1)  # (56,)
+    # print("Velocity differences (norm):", velocity_norms)
+    print("Average Velocity Tracking RMS Error: ", np.mean(velocity_norms))
+
+    print("Average Inference Time: ", inference_time / total_steps, "s")
+
+    # play recorded trajectory
+    recorded_traj = np.stack(state_traj, axis=1)
+    renderer.composite3('test', recorded_traj, 'trot')
+
+    from matplotlib import pyplot as plt
+    fig, axs = plt.subplots(2, 1, figsize=(12, 5))
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), measured_x_vels, color='black', linestyle="-", label="Measured_x")
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), measured_y_vels, color='black', linestyle="-", label="Measured_y")
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), target_x_vels, color='black', linestyle="--", label="Desired")
+    axs[0].legend()
+    axs[0].set_title("Forward Linear Velocity")
+    axs[0].set_xlabel("Time (s)")
+    axs[0].set_ylabel("Velocity (m/s)")
+
+    axs[1].plot(np.linspace(0, total_steps * 0.02, total_steps), planned_x_vels, color='black', linestyle="-", label="Measured_x")
+    axs[1].plot(np.linspace(0, total_steps * 0.02, total_steps), planned_y_vels, color='black', linestyle="-", label="Measured_y")
+    axs[1].plot(np.linspace(0, total_steps * 0.02, total_steps), target_x_vels, color='black', linestyle="--", label="Desired")
+    axs[1].legend()
+    axs[1].set_title("Planned Forward Linear Velocity")
+    axs[1].set_xlabel("Time (s)")
+    axs[1].set_ylabel("Velocity (m/s)")
+
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == '__main__':
-    test()
+    test_add()

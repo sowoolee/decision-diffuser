@@ -3,6 +3,7 @@ if __name__ == '__main__':
     from analysis import RUN
     import jaynes
     from script.train import main
+    # from script.train_ADD import main
     from config.locomotion_config import Config
     from params_proto.hyper import Sweep
 
