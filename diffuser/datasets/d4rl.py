@@ -71,6 +71,10 @@ def sequence_dataset(env, preprocess_fn):
                   '~/Desktop/gait_fast/bound/data.pkl',
                   '~/Desktop/gait_fast/pace/data.pkl',
                   '~/Desktop/gait_fast/pronk/data.pkl',
+                  # '~/Desktop/gait_fast/trot/rand.pkl',
+                  # '~/Desktop/gait_fast/bound/rand.pkl',
+                  # '~/Desktop/gait_fast/pace/rand.pkl',
+                  # '~/Desktop/gait_fast/pronk/rand.pkl',
                   ]
     dataset = {}
     keys = ['actions', 'observations', 'rewards', 'terminals', 'timeouts']
