@@ -26,6 +26,9 @@ from diffuser.models.helpers import apply_conditioning
 
 from isaacgym.torch_utils import quat_rotate_inverse
 
+import onnx
+import onnxruntime as ort
+
 def load_env(label, headless=False):
     dirs = glob.glob(f"../runs/{label}/*")
     logdir = sorted(dirs)[0]
@@ -140,7 +143,8 @@ def import_diffuser(path):
     )
 
     dataset = dataset_config()
-    renderer = render_config()
+    # renderer = render_config()
+    renderer = None
 
     observation_dim = dataset.observation_dim
     action_dim = dataset.action_dim
@@ -462,45 +466,43 @@ def test_add():
 
 def export_diffuser_onnx():
     # import diffusion model
-    trainer = import_diffuser()
-    dataset = trainer.dataset
+    trainer = import_diffuser('4_gaits/unet')
     device = trainer.device
-    renderer = trainer.renderer
 
     unet = trainer.ema_model.model.to('cpu')
     cond = {0: 0.1*torch.ones((1,37), device='cpu')}
     s0 = cond[0]
     returns = torch.tensor([[1,0,0,0]], dtype=torch.float, device='cpu')
-    x = 0.5*torch.ones((1,192,37), device='cpu')
-    t = torch.full((1,), 1, device='cpu', dtype=torch.long)
+    x = 0.5*torch.ones((1,56,37), device='cpu')
+    t = torch.full((1,), 99, device='cpu', dtype=torch.long)
 
-    torch_out = unet(x, s0, t, returns, use_dropout=False)
+    #####################  exporting  ###########################
+    torch.onnx.export(
+        unet,
+        (x, t, returns),
+        "Unet.onnx",
+        export_params=True,
+        opset_version=16,
+        do_constant_folding=True,
+        input_names=['x', 'time', 'returns'],
+        output_names=['output'],
+    )
+    #############################################################
 
-    # torch.onnx.export(unet,               # 실행될 모델
-    #                   (x, s0, t, returns, False, False),                  # 모델 입력값 (튜플로 여러 입력값 전달)
-    #                   "diffuser.onnx",   # 모델 저장 경로
-    #                   export_params=True,        # 모델 파일 안에 학습된 모델 가중치를 저장할지의 여부
-    #                   opset_version=11,          # 모델을 변환할 때 사용할 ONNX 버전
-    #                   do_constant_folding=True,  # 최적화시 상수폴딩을 사용할지의 여부
-    #                   input_names = ['x', 'cond', 'time', 'returns', 'use_dropout', 'force_dropout'],   # 모델의 입력값을 가리키는 이름
-    #                   output_names = ['output'],            # 모델의 출력값을 가리키는 이름
-    #                   )
+    torch_out = unet(x, t, returns, use_dropout=False)
 
-    onnx_model_path = "/home/kdyun/Desktop/diffuser.onnx"
+    onnx_model_path = "/home/hubolab/Desktop/Unet.onnx"
 
-    # model = onnx.load("diffuser.onnx")
-    # for input in model.graph.input:
-    #     print(input.name)
+    model = onnx.load("MambaUnet.onnx")
+    for input in model.graph.input:
+        print(input.name)
 
     ort_session = ort.InferenceSession(onnx_model_path)
 
     ort_inputs = {
         'x': x.cpu().numpy(),
-        # 'cond': s0.cpu().numpy(),
         'time': t.cpu().numpy(),
         'returns': returns.cpu().numpy(),
-        # 'use_dropout': np.array(False, dtype=np.bool_),
-        # 'force_dropout': np.array(False, dtype=np.bool_)
     }
     ort_outs = ort_session.run(None, ort_inputs)
 
@@ -517,8 +519,327 @@ def export_diffuser_onnx():
 
     difference_norm = (np.linalg.norm(onnx_out_np - torch_out_np))
     print(f"The norm of the difference between ONNX and PyTorch outputs is: {difference_norm}")
-
     return None
 
+def export_dipo_onnx():
+    # import diffusion model
+    trainer = import_diffuser('4gait_rand/unet')
+    device = trainer.device
+
+    class UnifiedModel(torch.nn.Module):
+        def __init__(self, ema_model):
+            super().__init__()
+            self.model = ema_model.model.to('cpu')
+            self.inv_model = ema_model.inv_model.to('cpu')
+        def forward(self, x, cond, time, returns):
+            samples = self.model(x, cond, time, returns)
+            # samples.clamp_(-1., 1.)
+            samples[:,0,:] = cond.clone()
+            obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1).to('cpu')
+            action = self.inv_model(obs_comb)
+            return action[0]
+
+    dipo = UnifiedModel(trainer.ema_model)
+
+    obs = np.concatenate([
+        to_np([[0.,0., 0.266, 0, 0, 0, 1]]),
+        to_np([[0,0,0,0,0,0]]),
+        to_np([[0.00, 0.7854, -1.5708, 0.00, 0.7854, -1.5708, 0.00, 0.7854, -1.5708, 0.00, 0.7854, -1.5708]]),
+        to_np([[0,0,0,0,0,0,0,0,0,0,0,0]])], axis=-1)
+    obs = trainer.dataset.normalizer.normalize(obs, 'observations')
+    obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+
+    cond = 0.*torch.ones((1,37), device='cpu')
+    cond = to_torch(obs, device='cpu')
+
+    returns = torch.tensor([[0.0,0.0,0.0,0.0]], dtype=torch.float, device='cpu')
+    # x = 0.*torch.ones((1,56,37), device='cpu')
+    x = torch.randn((1,56,37), device='cpu')
+    x[:,0,:] = cond.clone()
+    t = torch.full((1,), 99.0, device='cpu', dtype=torch.float)
+
+    #####################  exporting  #########################
+    torch.onnx.export(
+        dipo,
+        (x, cond, t, returns),
+        "DiPo.onnx",
+        export_params=True,
+        opset_version=16,
+        do_constant_folding=True,
+        input_names=['x', 'cond', 'time', 'returns'],
+        output_names=['output'],
+    )
+    ###########################################################
+
+    torch_out = dipo(x, cond, t, returns)
+
+    onnx_model_path = "/home/hubolab/Desktop/DiPo.onnx"
+
+    # onnx_model = onnx.load(onnx_model_path)
+    # for input_tensor in onnx_model.graph.input:
+    #     print(f"Input {input_tensor.name}: {input_tensor.type.tensor_type.elem_type}")
+
+    # model = onnx.load("DiPo.onnx")
+    # for input in model.graph.input:
+    #     print(input.name)
+
+    ort_session = ort.InferenceSession(onnx_model_path)
+
+    ort_inputs = {
+        'x': x.cpu().numpy(),
+        'cond': cond.cpu().numpy(),
+        'time': t.cpu().numpy(),
+        'returns': returns.cpu().numpy(),
+    }
+    ort_outs = ort_session.run(None, ort_inputs)
+
+    inf_t = 0
+    for _ in range(80):
+        start = time.time()
+        ort_outs = ort_session.run(None, ort_inputs)
+        end = time.time()
+        inf_t += end - start
+    print("onnx unet sampling time : {}".format(inf_t / 10))
+
+    onnx_out_np = ort_outs[0]
+    torch_out_np = torch_out.detach().cpu().numpy()
+
+    difference_norm = (np.linalg.norm(onnx_out_np - torch_out_np))
+    print(f"The norm of the difference between ONNX and PyTorch outputs is: {difference_norm}")
+    return None
+
+def test_onnx():
+    label = "gait-conditioned-agility/pretrain-v0/train"
+    env = load_env(label, headless=False)
+
+    # import diffusion model
+    trainer = import_diffuser('4_gaits/unet')
+    dataset = trainer.dataset
+    device = trainer.device
+
+    onnx_model_path = "/home/hubolab/Desktop/Unet.onnx"
+    ort_session = ort.InferenceSession(onnx_model_path)
+
+    # load environment
+    num_envs = env.num_envs
+
+    # y conditioning
+    gait_num = 1
+    v_x = 1.5
+
+    # start testing
+    t = 0
+    env.reset()
+    total_steps = 200
+    state_traj = []
+    inference_time = 0
+
+    measured_x_vels = np.zeros(total_steps)
+    measured_y_vels = np.zeros(total_steps)
+    planned_x_vels = np.zeros(total_steps)
+    planned_y_vels = np.zeros(total_steps)
+    target_x_vels = np.ones(total_steps) * v_x
+
+    while t < total_steps:
+        returns = to_device(torch.Tensor([[gait_num, v_x, 0,0] for i in range(num_envs)]), device)
+
+        obs = np.concatenate([
+            to_np([[0.,0.]]),
+            to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+            to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+            to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+
+        s_t = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+        state_traj.append(s_t)
+
+        # action sampling
+        obs = dataset.normalizer.normalize(obs, 'observations')
+        obs = np.concatenate([to_np([[0.3,0.3]]), obs[:,2:]], axis=-1)
+
+        conditions = {0: to_torch(obs, device=device)}
+
+        # state trajectory sampling
+        start = time.time()
+        # samples = trainer.ema_model.conditional_sample_acc(conditions, returns)
+
+        x = torch.randn(1,56,37).to(device)
+        x = apply_conditioning(x, conditions, 0)
+        timestep = torch.full((1,), 99., device=x.device).long()
+
+        ort_inputs = {
+            'x': x.cpu().numpy(),
+            'time': timestep.cpu().numpy(),
+            'returns': returns.cpu().numpy(),
+        }
+        samples = ort_session.run(None, ort_inputs)
+        samples = to_torch(samples[0], device=device)
+        samples = apply_conditioning(samples, conditions, 0)
+
+        end = time.time()
+        inference_time += (end - start)
+        obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1)
+
+        if t==30:
+            planned_linvel = to_np(
+                quat_rotate_inverse(to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,3:7]), to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,7:10]))
+            )
+            for i in range(planned_linvel.shape[0]):
+                planned_x_vels[i] = planned_linvel[i][0]
+                planned_y_vels[i] = planned_linvel[i][1]
+        # quat_rotate_inverse(to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,3:7]), to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,7:10]))
+
+        with torch.no_grad():
+            action = trainer.ema_model.inv_model(obs_comb)
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        measured_x_vels[t] = env.base_lin_vel[0, 0]
+        measured_y_vels[t] = env.base_lin_vel[0, 1]
+
+        print("Environment timestep: {}".format(t))
+
+        t += 1
+
+    print('evaluation ended')
+
+    target_vel = np.array([v_x, 0])
+    planned_xy = planned_linvel[:,:2]
+    measured_xy = np.stack([measured_x_vels, measured_y_vels], axis=1)
+    diff = measured_xy - target_vel # planned_xy - target_vel
+    velocity_norms = np.linalg.norm(diff, axis=1)  # (56,)
+    # print("Velocity differences (norm):", velocity_norms)
+    print("Average Velocity Tracking RMS Error: ", np.mean(velocity_norms))
+    print("Average Inference Time: ", inference_time / total_steps, "s")
+
+
+    from matplotlib import pyplot as plt
+    fig, axs = plt.subplots(2, 1, figsize=(12, 5))
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), measured_x_vels, color='black', linestyle="-", label="Measured_x")
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), measured_y_vels, color='black', linestyle="-", label="Measured_y")
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), target_x_vels, color='black', linestyle="--", label="Desired")
+    axs[0].legend()
+    axs[0].set_title("Forward Linear Velocity")
+    axs[0].set_xlabel("Time (s)")
+    axs[0].set_ylabel("Velocity (m/s)")
+
+    axs[1].plot(np.linspace(0, total_steps * 0.02, total_steps), planned_x_vels, color='black', linestyle="-", label="Measured_x")
+    axs[1].plot(np.linspace(0, total_steps * 0.02, total_steps), planned_y_vels, color='black', linestyle="-", label="Measured_y")
+    axs[1].plot(np.linspace(0, total_steps * 0.02, total_steps), target_x_vels, color='black', linestyle="--", label="Desired")
+    axs[1].legend()
+    axs[1].set_title("Planned Forward Linear Velocity")
+    axs[1].set_xlabel("Time (s)")
+    axs[1].set_ylabel("Velocity (m/s)")
+
+    plt.tight_layout()
+    plt.show()
+
+def test_dipo():
+    label = "gait-conditioned-agility/pretrain-v0/train"
+    env = load_env(label, headless=False)
+
+    # import diffusion model
+    trainer = import_diffuser('4_gaits/unet')
+    # trainer = import_diffuser('4gait_rand/unet')
+    dataset = trainer.dataset
+    device = trainer.device
+
+    onnx_model_path = "/home/hubolab/Desktop/DiPo.onnx"
+    # onnx_model_path = "/home/hubolab/workspace/DD/script/DiPo_rand.onnx"
+    ort_session = ort.InferenceSession(onnx_model_path)
+
+    # load environment
+    num_envs = env.num_envs
+
+    # y conditioning
+    gait_num = 1
+    v_x = 1.5
+
+    # start testing
+    t = 0
+    env.reset()
+    total_steps = 200
+    state_traj = []
+    inference_time = 0
+
+    measured_x_vels = np.zeros(total_steps)
+    measured_y_vels = np.zeros(total_steps)
+    planned_x_vels = np.zeros(total_steps)
+    planned_y_vels = np.zeros(total_steps)
+    target_x_vels = np.ones(total_steps) * v_x
+
+    while t < total_steps:
+        returns = to_device(torch.Tensor([[gait_num, v_x, 0,0] for i in range(num_envs)]), device)
+
+        obs = np.concatenate([
+            to_np([[0.,0.]]),
+            to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
+            to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+            to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
+
+        s_t = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
+        state_traj.append(s_t)
+
+        # action sampling
+        obs = dataset.normalizer.normalize(obs, 'observations')
+        obs = np.concatenate([to_np([[0.,0.]]), obs[:,2:]], axis=-1)
+
+        conditions = {0: to_torch(obs, device=device)}
+
+        # state trajectory sampling
+        start = time.time()
+        # samples = trainer.ema_model.conditional_sample_acc(conditions, returns)
+
+        x = torch.randn(1,56,37).to(device)
+        x = apply_conditioning(x, conditions, 0)
+        timestep = torch.full((1,), 99., device=x.device)
+
+        ort_inputs = {
+            'x': x.cpu().numpy(),
+            'cond': conditions[0].cpu().numpy(),
+            'time': timestep.cpu().numpy(),
+            'returns': returns.cpu().numpy(),
+        }
+        action = ort_session.run(None, ort_inputs)
+        action = to_torch(action, device=device)
+
+        with torch.no_grad():
+            env.step(action)
+            env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
+
+        measured_x_vels[t] = env.base_lin_vel[0, 0]
+        measured_y_vels[t] = env.base_lin_vel[0, 1]
+
+        print("Environment timestep: {}".format(t))
+
+        t += 1
+
+    print('evaluation ended')
+
+    target_vel = np.array([v_x, 0])
+    measured_xy = np.stack([measured_x_vels, measured_y_vels], axis=1)
+    diff = measured_xy - target_vel # planned_xy - target_vel
+    velocity_norms = np.linalg.norm(diff, axis=1)  # (56,)
+    # print("Velocity differences (norm):", velocity_norms)
+    print("Average Velocity Tracking RMS Error: ", np.mean(velocity_norms))
+    print("Average Inference Time: ", inference_time / total_steps, "s")
+
+
+    from matplotlib import pyplot as plt
+    fig, axs = plt.subplots(2, 1, figsize=(12, 5))
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), measured_x_vels, color='black', linestyle="-", label="Measured_x")
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), measured_y_vels, color='black', linestyle="-", label="Measured_y")
+    axs[0].plot(np.linspace(0, total_steps * 0.02, total_steps), target_x_vels, color='black', linestyle="--", label="Desired")
+    axs[0].legend()
+    axs[0].set_title("Forward Linear Velocity")
+    axs[0].set_xlabel("Time (s)")
+    axs[0].set_ylabel("Velocity (m/s)")
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == '__main__':
-    test_add()
+    # test()
+    # test_onnx()
+    # export_dipo_onnx()
+    test_dipo()

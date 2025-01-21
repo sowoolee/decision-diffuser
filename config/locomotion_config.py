@@ -10,7 +10,7 @@ class Config(ParamsProto):
     dataset = 'go1-locomotion'
 
     ## model
-    model = 'models.TemporalMamba'
+    model = 'models.TemporalUnet'
     diffusion = 'models.GaussianInvDynDiffusion'
     horizon = 56 # 100
     n_diffusion_steps = 100 # 200
