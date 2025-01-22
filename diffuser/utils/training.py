@@ -245,8 +245,8 @@ class Trainer(object):
             if self.step == 0 and self.sample_freq:
                 self.render_reference(self.n_reference)
 
-            if self.step and self.step % self.record_freq == 0:
-                self.record_samples()
+            # if self.step and self.step % self.record_freq == 0:
+            #     self.record_samples()
 
             self.step += 1
         writer.close()

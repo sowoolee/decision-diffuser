@@ -116,7 +116,7 @@ def import_diffuser(path):
     basepath = '/home/hubolab/workspace/DD/weights/diffuser/'
     # basepath = '/home/hubolab/workspace/DD/weights/diffuser/4_gaits/mamba/checkpoint'
     # loadpath = '/home/hubolab/workspace/DD/weights/diffuser3/ADD/mamba/checkpoint'
-    loadpath = os.path.join(basepath, path, 'checkpoint', 'state_100000.pt')
+    loadpath = os.path.join(basepath, path, 'checkpoint', 'state_50000.pt')
     state_dict = torch.load(loadpath, map_location=Config.device)
 
     # Load configs
@@ -341,7 +341,7 @@ def test_add():
     env = load_env(label, headless=False)
 
     # import diffusion model
-    trainer = import_diffuser('4_gaits/mamba')
+    trainer = import_diffuser('4gait_history/unet')
     dataset = trainer.dataset
     device = trainer.device
     renderer = trainer.renderer
@@ -352,13 +352,13 @@ def test_add():
     num_envs = env.num_envs
 
     # y conditioning
-    gait_num = -1
+    gait_num = 1
     v_x = 1.5
 
     # start testing
     t = 0
     env.reset()
-    total_steps = 200
+    total_steps = 500
     state_traj = []
     inference_time = 0
 
@@ -368,11 +368,14 @@ def test_add():
     planned_y_vels = np.zeros(total_steps)
     target_x_vels = np.ones(total_steps) * v_x
 
+    from collections import deque
+    history_buffer = deque(maxlen=3)
+
     while t < total_steps:
-        # if t < total_steps * 0.4:
-        #    gait_num = 3
-        # else:
-        #    gait_num = 0
+        if t < total_steps * 0.4:
+           gait_num = 0
+        else:
+           gait_num = 1
         returns = to_device(torch.Tensor([[gait_num, v_x, 0,0] for i in range(num_envs)]), device)
 
         obs = np.concatenate([
@@ -388,6 +391,8 @@ def test_add():
         obs = dataset.normalizer.normalize(obs, 'observations')
         obs = np.concatenate([to_np([[0.3,0.3]]), obs[:,2:]], axis=-1)
 
+        current_history = [obs[:,2:]]
+
         conditions = {0: to_torch(obs, device=device)}
 
         # state trajectory sampling
@@ -398,7 +403,13 @@ def test_add():
         x = apply_conditioning(x, conditions, 0)
         timestep = torch.full((1,), 99, device=x.device).long()
 
-        samples = trainer.ema_model.model(x, conditions, timestep, returns)
+        if len(history_buffer) < 3:
+            padded_history = [np.zeros((1,47), dtype=float) for _ in range(3 - len(history_buffer))]
+            history = torch.tensor([np.concatenate(padded_history + list(history_buffer), axis=0)], device=device).float()
+        else:
+            history = torch.tensor([np.concatenate(history_buffer, axis=0)], device=device).float()
+
+        samples = trainer.ema_model.model(x, conditions, timestep, returns, history)
         samples = apply_conditioning(samples, conditions, 0)
 
         end = time.time()
@@ -416,11 +427,15 @@ def test_add():
 
         with torch.no_grad():
             action = trainer.ema_model.inv_model(obs_comb)
+            current_history.append(to_np(action))
             env.step(action)
             env.set_camera(env.root_states[0, 0:3] + to_torch([2.5, 2.5, 2.5]), env.root_states[0, 0:3])
 
         measured_x_vels[t] = env.base_lin_vel[0, 0]
         measured_y_vels[t] = env.base_lin_vel[0, 1]
+
+        current_history = np.concatenate(current_history, axis=-1)
+        history_buffer.append(current_history)
 
         print("Environment timestep: {}".format(t))
 
@@ -440,7 +455,7 @@ def test_add():
 
     # play recorded trajectory
     recorded_traj = np.stack(state_traj, axis=1)
-    renderer.composite3('test', recorded_traj, 'trot')
+    # renderer.composite3('test', recorded_traj, 'trot')
 
     from matplotlib import pyplot as plt
     fig, axs = plt.subplots(2, 1, figsize=(12, 5))
@@ -523,7 +538,7 @@ def export_diffuser_onnx():
 
 def export_dipo_onnx():
     # import diffusion model
-    trainer = import_diffuser('4gait_rand/unet')
+    trainer = import_diffuser('4gait_history/unet')
     device = trainer.device
 
     class UnifiedModel(torch.nn.Module):
@@ -531,8 +546,8 @@ def export_dipo_onnx():
             super().__init__()
             self.model = ema_model.model.to('cpu')
             self.inv_model = ema_model.inv_model.to('cpu')
-        def forward(self, x, cond, time, returns):
-            samples = self.model(x, cond, time, returns)
+        def forward(self, x, cond, time, returns, history):
+            samples = self.model(x, cond, time, returns, history)
             # samples.clamp_(-1., 1.)
             samples[:,0,:] = cond.clone()
             obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1).to('cpu')
@@ -552,28 +567,31 @@ def export_dipo_onnx():
     cond = 0.*torch.ones((1,37), device='cpu')
     cond = to_torch(obs, device='cpu')
 
+    history = torch.zeros((1,3,47), device='cpu')
+    history[:,2,:35] = torch.tensor(obs[:,2:], device='cpu')
+
     returns = torch.tensor([[0.0,0.0,0.0,0.0]], dtype=torch.float, device='cpu')
-    # x = 0.*torch.ones((1,56,37), device='cpu')
-    x = torch.randn((1,56,37), device='cpu')
+    x = 0.*torch.ones((1,56,37), device='cpu')
+    # x = torch.randn((1,56,37), device='cpu')
     x[:,0,:] = cond.clone()
     t = torch.full((1,), 99.0, device='cpu', dtype=torch.float)
 
     #####################  exporting  #########################
     torch.onnx.export(
         dipo,
-        (x, cond, t, returns),
+        (x, cond, t, returns, history),
         "DiPo.onnx",
         export_params=True,
         opset_version=16,
         do_constant_folding=True,
-        input_names=['x', 'cond', 'time', 'returns'],
+        input_names=['x', 'cond', 'time', 'returns', 'history'],
         output_names=['output'],
     )
     ###########################################################
 
-    torch_out = dipo(x, cond, t, returns)
+    torch_out = dipo(x, cond, t, returns, history)
 
-    onnx_model_path = "/home/hubolab/Desktop/DiPo.onnx"
+    onnx_model_path = "/home/hubolab/Desktop/DiPo_history.onnx"
 
     # onnx_model = onnx.load(onnx_model_path)
     # for input_tensor in onnx_model.graph.input:
@@ -590,6 +608,7 @@ def export_dipo_onnx():
         'cond': cond.cpu().numpy(),
         'time': t.cpu().numpy(),
         'returns': returns.cpu().numpy(),
+        'history': history.cpu().numpy()
     }
     ort_outs = ort_session.run(None, ort_inputs)
 
@@ -840,6 +859,7 @@ def test_dipo():
 
 if __name__ == '__main__':
     # test()
+    # test_add()
     # test_onnx()
-    # export_dipo_onnx()
-    test_dipo()
+    export_dipo_onnx()
+    # test_dipo()

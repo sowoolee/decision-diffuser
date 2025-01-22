@@ -13,6 +13,7 @@ from .buffer import ReplayBuffer
 RewardBatch = namedtuple('Batch', 'trajectories conditions returns')
 Batch = namedtuple('Batch', 'trajectories conditions')
 ValueBatch = namedtuple('ValueBatch', 'trajectories conditions values')
+HistoryBatch = namedtuple('Batch', 'trajectories conditions returns history')
 
 def count_significant_digits(number):
     """Calculate the number of significant digits in a given number."""
@@ -90,7 +91,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             max_start = min(path_length - 1, self.max_path_length - horizon)
             if not self.use_padding:
                 max_start = min(max_start, path_length - horizon)
-            for start in range(max_start):
+            for start in range(3, max_start):
                 end = start + horizon
                 indices.append((i, start, end))
         indices = np.array(indices)
@@ -144,6 +145,10 @@ class SequenceDataset(torch.utils.data.Dataset):
             unnormed_xy = (unnormed_xy - unnormed_xy[0:1,0:2])
             observations = np.concatenate([unnormed_xy, normed_other], axis=-1)
 
+            s_history = self.fields.normed_observations[path_ind, start-3:start, 2:]
+            a_history = self.fields.actions[path_ind, start-3:start]
+            history = np.concatenate([s_history, a_history], axis=-1)
+
             actions = self.fields.actions[path_ind, start:end] / self.action_scale
 
             conditions = self.get_conditions(observations)
@@ -156,7 +161,8 @@ class SequenceDataset(torch.utils.data.Dataset):
             rewards = self.fields.rewards[path_ind, start:end]
             returns = rewards[0]
             ############################################################
-            batch = RewardBatch(trajectories, conditions, returns)
+            # batch = RewardBatch(trajectories, conditions, returns)
+            batch = HistoryBatch(trajectories, conditions, returns, history)
         else:
             batch = Batch(trajectories, conditions)
 

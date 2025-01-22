@@ -159,20 +159,31 @@ class TemporalUnet(nn.Module):
         )
 
         self.returns_condition = returns_condition
+        self.encode_history = True
         self.condition_dropout = condition_dropout
         self.calc_energy = calc_energy
 
         if self.returns_condition:
             self.returns_mlp = nn.Sequential(
-                        # nn.Linear(1, dim),
                         nn.Linear(4,dim),
                         act_fn,
                         nn.Linear(dim, dim * 4),
                         act_fn,
                         nn.Linear(dim * 4, dim),
                     )
+
             self.mask_dist = Bernoulli(probs=1-self.condition_dropout)
             embed_dim = 2*dim
+
+            if self.encode_history:
+                self.history_mlp = nn.Sequential(
+                    nn.Flatten(start_dim=1),
+                    nn.Linear(3*(35+12), dim//8),
+                    act_fn,
+                    nn.Linear(dim//8, dim),
+                )
+                # embed_dim = 3*dim
+
         else:
             embed_dim = dim
 
@@ -213,7 +224,7 @@ class TemporalUnet(nn.Module):
             nn.Conv1d(dim, transition_dim, 1),
         )
 
-    def forward(self, x, cond, time, returns=None, use_dropout=True, force_dropout=False):
+    def forward(self, x, cond, time, returns=None, history=None, use_dropout=False, force_dropout=False):
         '''
             x : [ batch x horizon x transition ]
             returns : [batch x horizon]
@@ -228,6 +239,10 @@ class TemporalUnet(nn.Module):
         if self.returns_condition:
             assert returns is not None
             returns_embed = self.returns_mlp(returns)
+            if self.encode_history:
+                history_embed = self.history_mlp(history)
+                history_embed *= 0.1
+                returns_embed += history_embed
             if use_dropout:
                 mask = self.mask_dist.sample(sample_shape=(returns_embed.size(0), 1)).to(returns_embed.device)
                 returns_embed = mask*returns_embed
