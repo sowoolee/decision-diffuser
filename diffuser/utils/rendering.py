@@ -143,7 +143,7 @@ class RaisimRenderer:
         else:
             state = observation
 
-        quat = [state[6], state[3], state[4], state[5]]
+        quat = [state[5], state[2], state[3], state[4]]
         siny_cosp = 2 * (quat[0] * quat[3] + quat[1] * quat[2])
         cosy_cosp = 1 - 2 * (quat[2] * quat[2] + quat[3] * quat[3])
         yaw_angle = math.atan2(siny_cosp, cosy_cosp)
@@ -156,7 +156,7 @@ class RaisimRenderer:
 
         # math.cos(yaw_angle)*state[0], math.sin(yaw_angle)*state[0], 0.5,
         # gc = [  math.cos(yaw_angle)*1.5, math.sin(yaw_angle)*1.5, 0.5,
-        gc = [  *state[0:3],
+        gc = [  *state[0:2], 0.3,
                 *quat,
                 *dof_pos  ]
 

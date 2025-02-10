@@ -178,7 +178,7 @@ class TemporalUnet(nn.Module):
             if self.encode_history:
                 self.history_mlp = nn.Sequential(
                     nn.Flatten(start_dim=1),
-                    nn.Linear(3*(35+12), dim//8),
+                    nn.Linear(3*(transition_dim - 2 + 12), dim//8),
                     act_fn,
                     nn.Linear(dim//8, dim),
                 )
@@ -241,7 +241,7 @@ class TemporalUnet(nn.Module):
             returns_embed = self.returns_mlp(returns)
             if self.encode_history:
                 history_embed = self.history_mlp(history)
-                history_embed *= 0.1
+                history_embed *= 0.5
                 returns_embed += history_embed
             if use_dropout:
                 mask = self.mask_dist.sample(sample_shape=(returns_embed.size(0), 1)).to(returns_embed.device)

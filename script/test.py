@@ -226,8 +226,6 @@ def test():
     device = trainer.device
     renderer = trainer.renderer
 
-    # trainer.record_samples()
-
     # load environment
     num_envs = env.num_envs
 
@@ -341,7 +339,7 @@ def test_add():
     env = load_env(label, headless=False)
 
     # import diffusion model
-    trainer = import_diffuser('4gait_history/unet')
+    trainer = import_diffuser('obdim35/unet')
     dataset = trainer.dataset
     device = trainer.device
     renderer = trainer.renderer
@@ -353,7 +351,7 @@ def test_add():
 
     # y conditioning
     gait_num = 1
-    v_x = 1.5
+    v_x = 1.0
 
     # start testing
     t = 0
@@ -373,15 +371,16 @@ def test_add():
 
     while t < total_steps:
         if t < total_steps * 0.4:
-           gait_num = 0
-        else:
            gait_num = 1
+        else:
+           gait_num = 2
         returns = to_device(torch.Tensor([[gait_num, v_x, 0,0] for i in range(num_envs)]), device)
 
         obs = np.concatenate([
             to_np([[0.,0.]]),
-            to_np(env.root_states[:,2:3]), to_np(env.root_states[:,3:7]),
-            to_np(env.root_states[:,7:10]), to_np(env.root_states[:,10:13]),
+            # to_np(env.root_states[:,2:3]),
+            to_np(env.root_states[:,3:7]),
+            to_np(env.root_states[:,7:9]), to_np(env.root_states[:,10:13]),
             to_np(env.dof_pos[:,:12]), to_np(env.dof_vel[:, :12])], axis=-1)
 
         s_t = np.concatenate([to_np(env.root_states[:,0:2]), obs[:,2:]], axis=-1)
@@ -399,17 +398,18 @@ def test_add():
         start = time.time()
         # samples = trainer.ema_model.conditional_sample_acc(conditions, returns)
 
-        x = torch.randn(1,56,37).to(device)
+        x = torch.randn(1,56,35).to(device)
         x = apply_conditioning(x, conditions, 0)
         timestep = torch.full((1,), 99, device=x.device).long()
 
         if len(history_buffer) < 3:
-            padded_history = [np.zeros((1,47), dtype=float) for _ in range(3 - len(history_buffer))]
+            padded_history = [np.zeros((1,45), dtype=float) for _ in range(3 - len(history_buffer))]
             history = torch.tensor([np.concatenate(padded_history + list(history_buffer), axis=0)], device=device).float()
         else:
             history = torch.tensor([np.concatenate(history_buffer, axis=0)], device=device).float()
 
         samples = trainer.ema_model.model(x, conditions, timestep, returns, history)
+        samples = samples.clamp_(-1.,1.)
         samples = apply_conditioning(samples, conditions, 0)
 
         end = time.time()
@@ -418,7 +418,7 @@ def test_add():
 
         if t==30:
             planned_linvel = to_np(
-                quat_rotate_inverse(to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,3:7]), to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,7:10]))
+                quat_rotate_inverse(to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,2:6]), to_torch(dataset.normalizer.unnormalize(to_np(samples), 'observations')[0,:,7:10]))
             )
             for i in range(planned_linvel.shape[0]):
                 planned_x_vels[i] = planned_linvel[i][0]
@@ -538,7 +538,7 @@ def export_diffuser_onnx():
 
 def export_dipo_onnx():
     # import diffusion model
-    trainer = import_diffuser('4gait_history/unet')
+    trainer = import_diffuser('obdim35/unet')
     device = trainer.device
 
     class UnifiedModel(torch.nn.Module):
@@ -548,7 +548,7 @@ def export_dipo_onnx():
             self.inv_model = ema_model.inv_model.to('cpu')
         def forward(self, x, cond, time, returns, history):
             samples = self.model(x, cond, time, returns, history)
-            # samples.clamp_(-1., 1.)
+            samples.clamp_(-1., 1.)
             samples[:,0,:] = cond.clone()
             obs_comb = torch.cat([samples[:, 0, :], samples[:, 1, :]], dim=-1).to('cpu')
             action = self.inv_model(obs_comb)
@@ -557,8 +557,8 @@ def export_dipo_onnx():
     dipo = UnifiedModel(trainer.ema_model)
 
     obs = np.concatenate([
-        to_np([[0.,0., 0.266, 0, 0, 0, 1]]),
-        to_np([[0,0,0,0,0,0]]),
+        to_np([[0.,0., 0, 0, 0, 1]]),
+        to_np([[0,0,0,0,0]]),
         to_np([[0.00, 0.7854, -1.5708, 0.00, 0.7854, -1.5708, 0.00, 0.7854, -1.5708, 0.00, 0.7854, -1.5708]]),
         to_np([[0,0,0,0,0,0,0,0,0,0,0,0]])], axis=-1)
     obs = trainer.dataset.normalizer.normalize(obs, 'observations')
@@ -567,11 +567,11 @@ def export_dipo_onnx():
     cond = 0.*torch.ones((1,37), device='cpu')
     cond = to_torch(obs, device='cpu')
 
-    history = torch.zeros((1,3,47), device='cpu')
-    history[:,2,:35] = torch.tensor(obs[:,2:], device='cpu')
+    history = torch.zeros((1,3,45), device='cpu')
+    # history[:,2,:35] = torch.tensor(obs[:,2:], device='cpu')
 
     returns = torch.tensor([[0.0,0.0,0.0,0.0]], dtype=torch.float, device='cpu')
-    x = 0.*torch.ones((1,56,37), device='cpu')
+    x = 0.*torch.ones((1,56,35), device='cpu')
     # x = torch.randn((1,56,37), device='cpu')
     x[:,0,:] = cond.clone()
     t = torch.full((1,), 99.0, device='cpu', dtype=torch.float)

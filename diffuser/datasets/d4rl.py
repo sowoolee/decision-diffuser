@@ -96,14 +96,18 @@ def sequence_dataset(env, preprocess_fn):
     seperate_gait = True
 
     if not include_clock:
-        dataset['observations'] = np.concatenate([dataset['observations'][:,0:13], dataset['observations'][:,18:]], axis=-1)
-        print(dataset['observations'].shape)
+        dataset['observations'] = np.concatenate([dataset['observations'][:,0:13], dataset['observations'][:,-24:]], axis=-1)
 
     if not generate_pos:
         dataset['observations'] = dataset['observations'][:,2:]
 
     if not seperate_gait:
         dataset['rewards'][:,0] = -1
+
+    dataset['observations'] = np.concatenate([dataset['observations'][:,0:2], dataset['observations'][:,3:9],
+                                              dataset['observations'][:,10:]], axis=-1)
+
+    print(dataset['observations'].shape)
 
     N = dataset['rewards'].shape[0]
     data_ = collections.defaultdict(list)
